@@ -1,0 +1,38 @@
+# Configuração do pacote do produto e das suas dependências.
+# Versões exatas de tudo (inclusive dependências indiretas) ficam no
+# arquivo de travamento requirements-lock-cu126.txt.
+
+[build-system]
+requires = ["setuptools>=78"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "meter-reader"
+version = "0.1.0"  # única fonte da versão do pacote
+description = "Leitura automatizada de mostradores de medidores de energia."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Phelipe C. S. Costa" }]
+requires-python = ">=3.11,<3.12"
+
+# Dependências diretas do produto, com faixas de versão.
+# O torch e o torchvision são instalados antes, do índice do PyTorch,
+# porque o build (CPU ou CUDA) depende do índice, e não do nome.
+dependencies = [
+    "torch>=2.14,<2.15",
+    "torchvision>=0.29,<0.30",
+    "numpy>=2.4,<3",
+    "pandas>=2.2",
+    "pillow>=12.0",
+]
+
+[project.optional-dependencies]
+# Ferramentas de desenvolvimento: não vão para o instalador do cliente
+dev = ["pytest>=8"]
+
+[tool.setuptools.packages.find]
+where = ["src"]  # layout src/: só o que está em src/ entra no pacote
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
