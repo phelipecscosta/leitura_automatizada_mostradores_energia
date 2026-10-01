@@ -22,6 +22,19 @@ não permitem leitura e organiza as que precisam de verificação humana.
 - **Pesos dos modelos.** São publicados nos Releases deste repositório e
   baixados automaticamente na instalação.
 
+## Estrutura do repositório
+
+├── src/
+│ └── meter_reader/ pacote do produto: o que o cliente instala
+├── tests/ testes automatizados
+├── training/ pipeline de treino, fora do pacote instalado
+├── scripts/ utilitários, como o download de pesos
+├── packaging/ instalador para Windows e imagem Docker
+└── docs/ manuais de instalação e de uso
+
+
+*** REMOVER AO FINAL ****As pastas que ainda não têm conteúdo contêm apenas um arquivo `.gitkeep`, usado para que o Git as mantenha no repositório.
+
 ## Licença
 
 O código está sob a licença MIT (arquivo `LICENSE`). A licença cobre apenas o
