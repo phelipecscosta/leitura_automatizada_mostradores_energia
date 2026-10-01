@@ -22,6 +22,55 @@ não permitem leitura e organiza as que precisam de verificação humana.
 - **Pesos dos modelos.** São publicados nos Releases deste repositório e
   baixados automaticamente na instalação.
 
+## Ambiente de desenvolvimento
+
+Estas instruções preparam o ambiente para desenvolver e treinar. A instalação
+do software pelo cliente terá instalador próprio e manual separado.
+
+### Requisitos
+
+- Windows 10 ou 11, 64 bits
+- Python 3.11
+- Git
+- Opcional: GPU NVIDIA com driver compatível com CUDA 12.6. Sem GPU, tudo
+  funciona na CPU.
+
+### Instalação
+
+No PowerShell:
+
+```powershell
+git clone https://github.com/phelipecscosta/leitura_automatizada_mostradores_energia.git
+cd leitura_automatizada_mostradores_energia
+
+# Ambiente virtual com Python 3.11
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+
+# Dependências com as versões exatas do travamento
+python -m pip install -r requirements-lock-cu126.txt
+
+# O próprio pacote, em modo editável, sem buscar outras dependências
+python -m pip install -e ".[dev]" --no-deps
+
+# Configuração local: copie o modelo e preencha o caminho dos dados
+Copy-Item .env.example .env
+```
+
+Se a ativação do ambiente falhar com a mensagem "running scripts is disabled",
+execute uma vez `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned`
+e tente de novo.
+
+### Testes
+
+```powershell
+python -m pytest
+```
+
+Os testes não dependem dos dados. Sem a base configurada no `.env`, o teste
+que a utiliza é pulado automaticamente.
+
 ## Estrutura do repositório
 
 ├── src/
