@@ -1,0 +1,114 @@
+# =====================================================================
+# .gitignore do projeto leitura_automatizada_mostradores_energia
+# Regra geral: tudo que for dado do cliente, derivado dele, peso de
+# modelo ou segredo fica fora do repositório público. Exceções são
+# abertas uma a uma, com aprovação explícita (instruções, 6.2).
+# Extensões no formato [jJ][pP][gG] valem também em sistemas que
+# diferenciam maiúsculas de minúsculas (Linux, Docker).
+# =====================================================================
+
+# ---------------------------------------------------------------------
+# 1. Dados do cliente, por extensão (em qualquer pasta)
+# ---------------------------------------------------------------------
+# Imagens
+*.[jJ][pP][gG]
+*.[jJ][pP][eE][gG]
+*.[pP][nN][gG]
+*.[bB][mM][pP]
+*.[gG][iI][fF]
+*.[wW][eE][bB][pP]
+*.[tT][iI][fF]
+*.[tT][iI][fF][fF]
+*.[hH][eE][iI][cC]
+
+# Planilhas e tabelas
+*.[cC][sS][vV]
+*.[tT][sS][vV]
+*.[xX][lL][sS]
+*.[xX][lL][sS][xX]
+*.[xX][lL][sS][mM]
+*.[pP][aA][rR][qQ][uU][eE][tT]
+*.[fF][eE][aA][tT][hH][eE][rR]
+
+# Documentos (podem conter fotos ou identificadores do cliente)
+*.[pP][dD][fF]
+*.[dD][oO][cC]
+*.[dD][oO][cC][xX]
+*.[pP][pP][tT][xX]
+*.[hH][tT][mM][lL]
+*.[hH][tT][mM]
+
+# Arquivos compactados (podem conter lotes inteiros)
+*.[zZ][iI][pP]
+*.7[zZ]
+*.[rR][aA][rR]
+*.[tT][aA][rR]
+*.[gG][zZ]
+
+# ---------------------------------------------------------------------
+# 2. Pesos de modelo, features e artefatos derivados dos dados
+#    (pesos vão para o GitHub Releases, decisão E01)
+# ---------------------------------------------------------------------
+*.[pP][tT]
+*.[pP][tT][hH]
+*.[cC][kK][pP][tT]
+*.[oO][nN][nN][xX]
+*.[sS][aA][fF][eE][tT][eE][nN][sS][oO][rR][sS]
+*.[bB][iI][nN]
+*.[hH]5
+*.[nN][pP][yY]
+*.[nN][pP][zZ]
+*.[pP][kK][lL]
+*.[pP][iI][cC][kK][lL][eE]
+*.[jJ][oO][bB][lL][iI][bB]
+
+# ---------------------------------------------------------------------
+# 3. Pastas de dados e saídas (ancoradas na raiz pela barra inicial)
+# ---------------------------------------------------------------------
+/data/
+/models/
+/outputs/
+/runs/
+/Imagens processadas/
+
+# Pastas de ferramentas de treino e rastreio (em qualquer nível)
+checkpoints/
+mlruns/
+lightning_logs/
+wandb/
+
+# ---------------------------------------------------------------------
+# 4. Segredos e credenciais
+# ---------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.[kK][eE][yY]
+*.[pP][eE][mM]
+*.[pP][fF][xX]
+credentials*.json
+secrets*.json
+token*.json
+
+# ---------------------------------------------------------------------
+# 5. Python, ambiente virtual e testes
+# ---------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.ipynb_checkpoints/
+.pytest_cache/
+.coverage
+htmlcov/
+build/
+dist/
+*.egg-info/
+
+# ---------------------------------------------------------------------
+# 6. Editor e sistema operacional
+# ---------------------------------------------------------------------
+.vscode/
+Thumbs.db
+desktop.ini
+.DS_Store
