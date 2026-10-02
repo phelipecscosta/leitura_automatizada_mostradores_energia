@@ -19,7 +19,7 @@ GITIGNORE_CASES = [
     ("foto_medidor.jpg", True),                   # imagem na raiz
     ("FOTO_CELULAR.JPG", True),                   # extensão em maiúsculas
     ("notebooks/recorte_debug.png", True),        # imagem fora das pastas de dados
-    ("tests/Controle_03072026.xlsx", True),       # planilha gerada por teste
+    ("tests/Controle_01012000.xlsx", True),       # planilha gerada por teste (data fictícia)
     ("manifesto.csv", True),                      # tabela com nomes do cliente
     ("src/meter_reader/models/pesos.pt", True),   # peso salvo dentro do código
     ("features_dinov2.npy", True),                # embedding derivado das fotos
@@ -91,4 +91,3 @@ def test_gitkeep_only_in_empty_folders() -> None:
         and any(keep.parent in p.parents for p in tracked if p != keep)
     ]
     assert not stale, f"Apague estes .gitkeep, pois a pasta já tem conteúdo: {stale}"
-    
