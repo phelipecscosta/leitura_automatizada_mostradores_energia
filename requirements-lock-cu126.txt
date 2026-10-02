@@ -1,5 +1,5 @@
 # Travamento do ambiente de desenvolvimento (perfil GPU, CUDA 12.6)
-# Gerado com: python -m pip freeze --exclude-editable
+# Gerado com: python -m pip freeze --all --exclude-editable
 --extra-index-url https://download.pytorch.org/whl/cu126
 colorama==0.4.6
 filelock==3.32.3
@@ -13,11 +13,13 @@ numpy==2.4.6
 packaging==26.3
 pandas==3.0.6
 pillow==12.3.0
+pip==26.2.1
 pluggy==1.6.0
 Pygments==2.21.0
 pytest==9.1.1
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.4
+setuptools==78.1.0
 six==1.17.0
 sympy==1.14.0
 torch==2.14.1+cu126
