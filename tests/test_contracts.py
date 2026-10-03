@@ -128,3 +128,47 @@ def test_missing_marker_must_be_none(field, value) -> None:
 def test_batch_keeps_date_and_rows() -> None:
     batch = ExtractionBatch(batch_date=date(2000, 1, 1), rows=(_row(),))
     assert batch.batch_date.year == 2000 and len(batch.rows) == 1
+
+# ---------------------------------------------------------------------
+# Resultados da integridade e do pareamento
+# ---------------------------------------------------------------------
+from meter_reader.contracts import (
+    REJECTION_CORRUPTED,
+    REJECTION_NOT_LISTED,
+    IntegrityIssue,
+    IntegrityResult,
+    PairingResult,
+    Reason,
+    Status,
+)
+
+
+def test_rejection_pairs_match_spec() -> None:
+    assert REJECTION_CORRUPTED.status is Status.REJECTED_CORRUPTED
+    assert REJECTION_CORRUPTED.reason is Reason.CORRUPTED
+    assert REJECTION_NOT_LISTED.status is Status.REJECTED_NOT_LISTED
+    assert REJECTION_NOT_LISTED.reason is Reason.NOT_IN_EXTRACTION
+
+
+def test_intact_image_has_no_rejection() -> None:
+    assert IntegrityResult("a.jpg", issue=None).rejection is None
+
+
+@pytest.mark.parametrize("issue", list(IntegrityIssue))
+def test_every_integrity_issue_maps_to_corrupted(issue) -> None:
+    # Toda causa técnica vira o mesmo par na planilha
+    assert IntegrityResult("a.jpg", issue=issue).rejection == REJECTION_CORRUPTED
+
+
+def test_paired_image_has_no_rejection() -> None:
+    row = _row()
+    assert PairingResult(row.photo_name, row=row).rejection is None
+
+
+def test_orphan_image_is_rejected_as_not_listed() -> None:
+    assert PairingResult("orfa.jpg", row=None).rejection == REJECTION_NOT_LISTED
+
+
+def test_pairing_rejects_row_of_another_photo() -> None:
+    with pytest.raises(ValueError):
+        PairingResult("outra.jpg", row=_row())

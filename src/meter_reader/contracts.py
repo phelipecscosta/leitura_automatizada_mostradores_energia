@@ -3,12 +3,22 @@
 Os textos de Status e Motivo são exatamente os da spec (2.5, item 1), porque
 vão para a planilha de controle e são lidos pelo utilizador. Usar estas
 enumerações, e nunca o texto digitado, impede status inválidos na planilha.
+
+Os registros são dataclasses imutáveis. A validação aqui garante invariantes
+simples; a conversão de texto bruto é feita na fronteira (leitor do CSV).
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
+from dataclasses import dataclass
+from datetime import date
 from enum import StrEnum
+
+# ---------------------------------------------------------------------
+# Vocabulário da planilha de controle
+# ---------------------------------------------------------------------
 
 
 class Status(StrEnum):
@@ -52,19 +62,28 @@ def first_reason(reasons: Iterable[Reason]) -> Reason:
         raise ValueError("É preciso informar ao menos um motivo.")
     return min(candidates, key=order.index)
 
+
+@dataclass(frozen=True)
+class Rejection:
+    """Par fixo de status e motivo de uma rejeição."""
+
+    status: Status
+    reason: Reason
+
+
+# Pares definidos pela spec (2.5, itens 2.3 e 2.4)
+REJECTION_CORRUPTED = Rejection(Status.REJECTED_CORRUPTED, Reason.CORRUPTED)
+REJECTION_NOT_LISTED = Rejection(Status.REJECTED_NOT_LISTED, Reason.NOT_IN_EXTRACTION)
+
 # ---------------------------------------------------------------------
-# Registros (dataclasses imutáveis). A validação aqui garante invariantes
-# simples; a conversão de texto bruto é feita na fronteira (leitor do CSV).
+# Entrada: BaseExtracao
 # ---------------------------------------------------------------------
-import re
-from dataclasses import dataclass
-from datetime import date
 
 # Marcador de ausência usado pelo SAP no CSV (fato F4 da ET1).
 # Precisa virar None no leitor; nunca pode chegar a um registro.
 MISSING_MARKER = "NA"
 
-# Opção B do item 5: letras e dígitos, sem tamanho fixo
+# Opção B do item 5 da T1.3: letras e dígitos, sem tamanho fixo
 _METER_PART_RE = re.compile(r"^[A-Za-z0-9]+$")
 
 
@@ -104,3 +123,48 @@ class ExtractionBatch:
 
     batch_date: date  # DDMMAAAA do nome do arquivo (fato F1)
     rows: tuple[ExtractionRow, ...]
+
+
+# ---------------------------------------------------------------------
+# Saída: integridade e pareamento
+# ---------------------------------------------------------------------
+
+
+class IntegrityIssue(StrEnum):
+    """Causa técnica de uma falha de integridade (spec 2.5, item 2.3).
+
+    Vai para o manifesto e para o log. Na planilha, todas aparecem com o
+    mesmo motivo: "Arquivo corrompido ou vazio".
+    """
+
+    UNREADABLE = "não abre ou não decodifica"
+    EMPTY_DARK = "vazia: preta"
+    EMPTY_BRIGHT = "vazia: branca"
+
+
+@dataclass(frozen=True)
+class IntegrityResult:
+    """Resultado da verificação de integridade de uma imagem."""
+
+    photo_name: str
+    issue: IntegrityIssue | None  # None: imagem íntegra
+
+    @property
+    def rejection(self) -> Rejection | None:
+        return None if self.issue is None else REJECTION_CORRUPTED
+
+
+@dataclass(frozen=True)
+class PairingResult:
+    """Resultado do pareamento de uma imagem com o BaseExtracao."""
+
+    photo_name: str
+    row: ExtractionRow | None  # None: imagem sem linha (órfã)
+
+    def __post_init__(self) -> None:
+        if self.row is not None and self.row.photo_name != self.photo_name:
+            raise ValueError("A linha pareada precisa apontar para a mesma foto.")
+
+    @property
+    def rejection(self) -> Rejection | None:
+        return None if self.row is not None else REJECTION_NOT_LISTED
