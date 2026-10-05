@@ -47,8 +47,9 @@ def test_white_image_is_empty_bright(tmp_path: Path) -> None:
 
 
 def test_black_with_sensor_noise_is_empty_dark(tmp_path: Path) -> None:
-    # Ruído leve de sensor não faz uma imagem preta deixar de ser vazia
-    noisy = np.clip(RNG.normal(3, 1, size=(480, 640, 3)), 0, 255)
+    # Ruído muito leve (contraste bem abaixo do limiar de 1,0) não faz uma
+    # imagem preta deixar de ser vazia
+    noisy = np.clip(RNG.normal(2, 0.3, size=(480, 640, 3)), 0, 255)
     assert check_integrity(_save(tmp_path, noisy)).issue is IntegrityIssue.EMPTY_DARK
 
 
@@ -110,3 +111,9 @@ def test_classify_boundaries(mean, std, expected) -> None:
 
 def test_default_thresholds_are_consistent() -> None:
     assert DEFAULT_THRESHOLDS.max_dark_mean < DEFAULT_THRESHOLDS.min_bright_mean
+
+
+def test_default_threshold_keeps_darkest_content_found() -> None:
+    # Regressão da calibração da T1.5: a imagem com conteúdo de menor
+    # contraste na base real mediu 1,55. O limiar padrão precisa ficar abaixo.
+    assert DEFAULT_THRESHOLDS.max_std < 1.55

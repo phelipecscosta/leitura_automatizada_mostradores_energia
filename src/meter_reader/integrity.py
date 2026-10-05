@@ -37,10 +37,14 @@ class EmptyImageThresholds:
     min_bright_mean: float  # a partir deste brilho, é branca
 
 
-# PROVISÓRIO: valores iniciais, a substituir pelos calibrados na base real
-# (T1.5, Bloco 3). Não usar como evidência.
+# Calibrados na base real (4 lotes, 12.340 imagens), com inspeção visual das
+# 69 imagens de contraste <= 10 e brilho <= 15. A imagem com conteúdo de
+# menor contraste mediu 1,55; com contraste <= 1,0 foram descartadas 26 das
+# 35 vazias e nenhuma imagem com conteúdo. As vazias restantes seguem para a
+# triagem. A base não tem imagem branca: esse limiar só é coberto por testes
+# sintéticos. Não aumentar max_std sem nova calibração (restrição R1).
 DEFAULT_THRESHOLDS = EmptyImageThresholds(
-    max_std=5.0, max_dark_mean=10.0, min_bright_mean=245.0
+    max_std=1.0, max_dark_mean=10.0, min_bright_mean=245.0
 )
 
 
