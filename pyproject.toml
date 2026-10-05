@@ -37,3 +37,4 @@ where = ["src"]  # layout src/: só o que está em src/ entra no pacote
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]  # permite importar o pacote training/ nos testes
