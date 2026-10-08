@@ -84,3 +84,41 @@ def test_encode_rejects_invalid(n1, n2, legibility):
     row = {"cena_n1": n1, "cena_n2": n2, "legibilidade": legibility}
     with pytest.raises(lb.LabelError):
         lb.encode(row)
+
+def sheet_row(code, lot="2000-01-01", subset="treino", role="rotulagem"):
+    # Caminho relativo à pasta de dados, como na folha real
+    return {"pseudonimo": code, "lote": lot, "conjunto": subset,
+            "papel": role, "caminho": f"lote_a/{code}.jpg"}
+
+
+def final_rows():
+    return {
+        "F-1": {"lote": "2000-01-01", "cena_n1": "outros", "cena_n2": "", "legibilidade": ""},
+        "F-2": {"lote": "2000-01-01", "cena_n1": "medidor", "cena_n2": "digital",
+                "legibilidade": "ilegivel"},
+    }
+
+
+def test_join_excludes_test_by_default(tmp_path):
+    sheet = [sheet_row("F-1"), sheet_row("F-2", subset="teste")]
+    photos = lb.join_with_sheet(final_rows(), sheet, tmp_path)
+    assert [p.pseudonym for p in photos] == ["F-1"]
+    assert photos[0].scene == 2 and photos[0].illegible == lb.MASKED
+    assert photos[0].path == tmp_path / "lote_a" / "F-1.jpg"
+
+
+def test_join_includes_test_only_when_asked(tmp_path):
+    sheet = [sheet_row("F-1"), sheet_row("F-2", subset="teste")]
+    photos = lb.join_with_sheet(final_rows(), sheet, tmp_path, include_test=True)
+    assert {p.pseudonym for p in photos} == {"F-1", "F-2"}
+
+
+def test_join_fails_when_label_is_not_in_sheet(tmp_path):
+    with pytest.raises(lb.LabelError):
+        lb.join_with_sheet(final_rows(), [sheet_row("F-1")], tmp_path)
+
+
+def test_join_fails_on_lot_mismatch(tmp_path):
+    sheet = [sheet_row("F-1"), sheet_row("F-2", lot="2000-01-02")]
+    with pytest.raises(lb.LabelError):
+        lb.join_with_sheet(final_rows(), sheet, tmp_path)

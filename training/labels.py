@@ -15,7 +15,14 @@ Regras (protocolo de avaliação, seção 2; E19 e E22):
 from __future__ import annotations
 
 import csv
+import sys
+from collections import Counter
+from dataclasses import dataclass
 from pathlib import Path
+
+from meter_reader.config import get_data_dir, get_work_dir
+from training.build_manifest import file_sha256
+from training.labeling_sheet import SHEET_NAME
 
 SCENE_CLASSES = ("digital", "ciclometrico", "outros")
 SCENE_METER_ONLY = -1  # indeterminado: sabe-se só que é medidor
@@ -70,3 +77,82 @@ def encode(row: dict) -> tuple[int, int]:
     else:
         scene = SCENE_CLASSES.index(scene_n2)
     return scene, _ILLEGIBLE[legibility]
+
+TEST_SUBSET = "teste"
+_SCENE_NAMES = {**dict(enumerate(SCENE_CLASSES)), SCENE_METER_ONLY: "indeterminado"}
+
+
+@dataclass(frozen=True)
+class LabeledPhoto:
+    """Uma foto rotulada, pronta para o treino.
+
+    O campo `path` aponta para a foto do cliente: nunca exibi-lo em saídas.
+    """
+
+    pseudonym: str
+    lot: str
+    subset: str     # treino ou validacao (teste só com include_test=True)
+    role: str       # cega, rotulagem ou estresse_zero
+    path: Path
+    scene: int      # índice em SCENE_CLASSES, ou SCENE_METER_ONLY
+    illegible: int  # 1 ilegível, 0 legível, ou MASKED
+
+
+def join_with_sheet(final: dict[str, dict], sheet: list[dict], data_dir: Path,
+                    include_test: bool = False) -> list[LabeledPhoto]:
+    """Junta os rótulos finais com a folha de rotulagem, pelo pseudônimo.
+
+    O lote de teste fica de fora por padrão: ele é aberto uma única vez,
+    na ET4 (protocolo de avaliação, seção 2.1).
+    """
+    by_code = {row["pseudonimo"]: row for row in sheet}
+    missing = final.keys() - by_code.keys()
+    if missing:
+        raise LabelError(f"{len(missing)} foto(s) rotulada(s) ausente(s) da folha.")
+
+    photos = []
+    for code in sorted(final):  # ordem estável, independente do arquivo
+        row, info = final[code], by_code[code]
+        if row["lote"] != info["lote"]:
+            raise LabelError("Lote divergente entre os rótulos e a folha.")
+        if info["conjunto"] == TEST_SUBSET and not include_test:
+            continue
+        scene, illegible = encode(row)
+        photos.append(LabeledPhoto(
+            pseudonym=code, lot=info["lote"], subset=info["conjunto"],
+            # A folha guarda o caminho relativo à pasta de dados (T2.5)
+            role=info["papel"], path=data_dir / info["caminho"],
+            scene=scene, illegible=illegible,
+        ))
+    return photos
+
+
+def load_labeled_photos(labels_path: Path, include_test: bool = False) -> list[LabeledPhoto]:
+    """Lê os rótulos (caminho recebido) e a folha (pasta de trabalho)."""
+    sheet_path = get_work_dir() / SHEET_NAME
+    with sheet_path.open(encoding="utf-8", newline="") as file:
+        sheet = list(csv.DictReader(file))
+    return join_with_sheet(read_final_labels(labels_path), sheet, get_data_dir(), include_test)
+
+
+def main(argv: list[str]) -> None:
+    if len(argv) != 1:
+        raise SystemExit("Uso: python -m training.labels CAMINHO_DO_LAB2_ROTULOS")
+    labels_path = Path(argv[0])
+    photos = load_labeled_photos(labels_path)
+
+    # Só contagens e a impressão digital; nunca pseudônimos nem caminhos
+    counts = Counter(
+        (p.lot, p.role, _SCENE_NAMES[p.scene],
+         {1: "ilegivel", 0: "legivel", MASKED: "-"}[p.illegible])
+        for p in photos
+    )
+    for key, n in sorted(counts.items()):
+        print(" ".join(f"{k:14}" for k in key), f"{n:4}")
+    print(f"Fotos fora do teste: {len(photos)}")
+    print(f"Arquivos de foto ausentes: {sum(not p.path.is_file() for p in photos)}")
+    print(f"SHA-256 dos rótulos: {file_sha256(labels_path)}")
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
