@@ -52,7 +52,7 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements-lock-cu126.txt
 
 # O próprio pacote, em modo editável, sem buscar outras dependências
-python -m pip install -e ".[dev]" --no-deps
+python -m pip install -e ".[dev,training]" --no-deps
 
 # Configuração local: copie o modelo e preencha o caminho dos dados
 Copy-Item .env.example .env

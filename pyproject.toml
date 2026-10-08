@@ -31,6 +31,12 @@ dependencies = [
 [project.optional-dependencies]
 # Ferramentas de desenvolvimento: não vão para o instalador do cliente
 dev = ["pytest>=8"]
+# Dependências do treino (pasta training/): não vão para o instalador do
+# cliente nem para a imagem Docker (instruções 6.2)
+training = [
+    "scikit-learn>=1.6",   # métricas (precisão média) e utilitários de avaliação
+    "scikit-image>=0.25",  # HOG da baseline não profunda (D3)
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]  # layout src/: só o que está em src/ entra no pacote
