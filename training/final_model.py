@@ -10,8 +10,17 @@ from __future__ import annotations
 
 import numpy as np
 import torch
+import json
 
+from pathlib import Path
+from training.build_manifest import file_sha256
+from training.calibration import log_weights
 from training.cross_validation import LinearHeads
+from training.cross_validation import fit_heads
+from training.labels import TEST_SUBSET, LabeledPhoto
+
+HEADS_NAME = "triagem_cabecas.pt"
+METADATA_NAME = "triagem_metadados.json"
 
 
 def fold_heads(heads: list[LinearHeads], mean: np.ndarray, std: np.ndarray,
@@ -41,3 +50,40 @@ def fold_heads(heads: list[LinearHeads], mean: np.ndarray, std: np.ndarray,
         folded.legibility_head.weight.copy_(wl.float())
         folded.legibility_head.bias.copy_(bl.float())
     return folded
+
+def train_final(features: np.ndarray, photos: list[LabeledPhoto], seeds,
+                t_scene: float, t_leg: float, device: str = "cpu") -> tuple[LinearHeads, dict]:
+    """Cabeças finais treinadas em todos os lotes fora do teste, já incorporadas."""
+    if any(p.subset == TEST_SUBSET for p in photos):
+        raise ValueError("O lote de teste não entra no treino final (protocolo 2.1).")
+    scene = np.array([p.scene for p in photos])
+    illegible = np.array([p.illegible for p in photos])
+
+    mean = features.mean(axis=0)
+    std = features.std(axis=0)
+    std[std < 1e-6] = 1.0  # mesma regra da validação cruzada
+    z = ((features - mean) / std).astype(np.float32)
+
+    heads, final_losses = [], []
+    for seed in seeds:
+        h, history = fit_heads(z, scene, illegible, seed, device)
+        heads.append(h.cpu())
+        final_losses.append(history[-1])
+
+    log_w, log_pw = log_weights(scene, illegible)
+    folded = fold_heads(heads, mean, std, log_w, log_pw, t_scene, t_leg)
+    info = {"fotos": len(photos), "lotes": sorted({p.lot for p in photos}),
+            "sementes": list(seeds), "perda_final_treino": final_losses,
+            "temperaturas": {"cena": t_scene, "legibilidade": t_leg}}
+    return folded, info
+
+
+def save_final(folder: Path, heads: LinearHeads, metadata: dict) -> Path:
+    """Grava as cabeças e os metadados; devolve o caminho do JSON."""
+    folder.mkdir(exist_ok=True)
+    heads_path = folder / HEADS_NAME
+    torch.save(heads.state_dict(), heads_path)
+    record = {**metadata, "sha256_cabecas": file_sha256(heads_path)}
+    json_path = folder / METADATA_NAME
+    json_path.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
+    return json_path
