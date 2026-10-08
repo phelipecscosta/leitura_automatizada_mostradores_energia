@@ -13,7 +13,12 @@ Regras (E08, E11 e decisões da T2.2):
 
 from __future__ import annotations
 
+import csv
 import random
+from collections import Counter
+
+from meter_reader.config import get_work_dir
+from training.build_manifest import MANIFEST_NAME, file_sha256
 
 SEED = 42
 SETS_BY_RANK = ("treino", "treino", "validacao", "teste")  # ordem cronológica
@@ -24,6 +29,8 @@ ZERO_STRESS_SIZE = 50
 ROLE_BLIND = "cega"
 ROLE_LABEL = "rotulagem"
 ROLE_ZERO = "estresse_zero"
+SAMPLE_NAME = "amostra_rotulagem.csv"
+SAMPLE_COLUMNS = ("lote", "conjunto", "posicao", "arquivo", "papel", "posicao_estresse")
 
 
 def assign_sets(lots: set[str]) -> dict[str, str]:
@@ -85,3 +92,28 @@ def build_sample(rows: list[dict]) -> list[dict]:
             if position <= ZERO_STRESS_SIZE:
                 s["papel"] = ROLE_ZERO
     return sample
+
+def main() -> None:
+    work_dir = get_work_dir()
+    manifest = work_dir / MANIFEST_NAME
+    with manifest.open(encoding="utf-8", newline="") as file:
+        rows = list(csv.DictReader(file))  # tudo como texto, como nos testes
+
+    sample = build_sample(rows)
+    output = work_dir / SAMPLE_NAME
+    with output.open("w", encoding="utf-8", newline="") as file:
+        writer = csv.DictWriter(file, fieldnames=SAMPLE_COLUMNS)
+        writer.writeheader()
+        writer.writerows(sample)
+
+    # Só contagens e impressões digitais; nunca nomes nem caminhos (E15)
+    counts = Counter((s["conjunto"], s["papel"] or "nao_sorteada") for s in sample)
+    for (subset, role), n in sorted(counts.items()):
+        print(f"{subset:10} {role:14} {n:6}")
+    print(f"Imagens no universo: {len(sample)}")
+    print(f"SHA-256 do manifesto: {file_sha256(manifest)}")
+    print(f"SHA-256 da amostra:   {file_sha256(output)}")
+
+
+if __name__ == "__main__":
+    main()
