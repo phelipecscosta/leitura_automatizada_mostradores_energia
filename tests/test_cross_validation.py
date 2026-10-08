@@ -55,3 +55,13 @@ def test_test_subset_is_refused():
     features, photos = synthetic(subset="teste")
     with pytest.raises(ValueError):
         cv.cross_validate(features, photos, seed=0)
+
+def test_probabilities_are_the_activation_of_the_logits():
+    features, photos = synthetic()
+    s_logits, l_logits, _ = cv.cross_validate_logits(features, photos, seed=0)
+    p_scene, p_ill, _ = cv.cross_validate(features, photos, seed=0)
+    assert np.isfinite(s_logits).all() and np.isfinite(l_logits).all()
+    # Softmax e sigmoide calculadas à parte, em NumPy
+    exp = np.exp(s_logits - s_logits.max(axis=1, keepdims=True))
+    assert np.allclose(p_scene, exp / exp.sum(axis=1, keepdims=True), atol=1e-6)
+    assert np.allclose(p_ill, 1 / (1 + np.exp(-l_logits)), atol=1e-6)

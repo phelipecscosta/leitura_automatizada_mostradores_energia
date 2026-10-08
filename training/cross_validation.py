@@ -61,17 +61,21 @@ class FoldResult:
     final_train_loss: float
 
 
-def cross_validate(features: np.ndarray, photos: list[LabeledPhoto], seed: int,
-                   train_fraction: float = 1.0, device: str = "cpu"):
-    """Predições fora da dobra: (p_cena (n, 3), p_ilegível (n,), resultados por dobra)."""
+def cross_validate_logits(features: np.ndarray, photos: list[LabeledPhoto], seed: int,
+                          train_fraction: float = 1.0, device: str = "cpu"):
+    """Logits fora da dobra: (cena (n, 3), ilegível (n,), resultados por dobra).
+
+    Os logits são a entrada da calibração por temperatura (protocolo 2.10, E1).
+    Guardar só probabilidades perde a informação das predições muito confiantes.
+    """
     if any(p.subset == TEST_SUBSET for p in photos):
         raise ValueError("O lote de teste não entra na validação cruzada (protocolo 2.1).")
 
     lots = np.array([p.lot for p in photos])
     scene = np.array([p.scene for p in photos])
     illegible = np.array([p.illegible for p in photos])
-    p_scene = np.full((len(photos), len(SCENE_CLASSES)), np.nan, dtype=np.float32)
-    p_illegible = np.full(len(photos), np.nan, dtype=np.float32)
+    scene_logits = np.full((len(photos), len(SCENE_CLASSES)), np.nan, dtype=np.float32)
+    illegible_logits = np.full(len(photos), np.nan, dtype=np.float32)
     rng = np.random.default_rng(seed)  # mesmo sorteio para todos os modelos da semente
     folds = []
 
@@ -90,9 +94,19 @@ def cross_validate(features: np.ndarray, photos: list[LabeledPhoto], seed: int,
 
         heads, history = fit_heads(z_train, scene[train], illegible[train], seed, device)
         with torch.no_grad():
-            scene_logits, leg_logits = heads(torch.as_tensor(z_held, device=device))
-        p_scene[held] = torch.softmax(scene_logits, dim=1).cpu().numpy()
-        p_illegible[held] = torch.sigmoid(leg_logits).cpu().numpy()
+            s_logits, l_logits = heads(torch.as_tensor(z_held, device=device))
+        scene_logits[held] = s_logits.cpu().numpy()
+        illegible_logits[held] = l_logits.cpu().numpy()
         folds.append(FoldResult(str(lot), len(train), history[-1]))
 
+    return scene_logits, illegible_logits, folds
+
+
+def cross_validate(features: np.ndarray, photos: list[LabeledPhoto], seed: int,
+                   train_fraction: float = 1.0, device: str = "cpu"):
+    """Probabilidades fora da dobra: (p_cena (n, 3), p_ilegível (n,), resultados por dobra)."""
+    scene_logits, illegible_logits, folds = cross_validate_logits(
+        features, photos, seed, train_fraction, device)
+    p_scene = torch.softmax(torch.as_tensor(scene_logits), dim=1).numpy()
+    p_illegible = torch.sigmoid(torch.as_tensor(illegible_logits)).numpy()
     return p_scene, p_illegible, folds
