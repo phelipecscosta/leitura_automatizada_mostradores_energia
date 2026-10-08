@@ -63,3 +63,45 @@ def fit_temperature(nll, logits: np.ndarray, labels: np.ndarray) -> float:
     """Temperatura T que minimiza nll(logits / T, rótulos)."""
     beta = _golden_min(lambda b: nll(np.asarray(logits) * b, labels), *BETA_RANGE)
     return 1.0 / beta
+
+
+def scene_probabilities(logits: np.ndarray, temperature: float = 1.0) -> np.ndarray:
+    """Softmax dos logits de cena divididos pela temperatura."""
+    return np.exp(_log_softmax(np.asarray(logits, dtype=np.float64) / temperature))
+
+
+def legibility_probabilities(logits: np.ndarray, temperature: float = 1.0) -> np.ndarray:
+    """Sigmoide dos logits de legibilidade divididos pela temperatura."""
+    return 1 / (1 + np.exp(-np.asarray(logits, dtype=np.float64) / temperature))
+
+
+def reliability_bins(prob: np.ndarray, label: np.ndarray, n_bins: int = 10):
+    """Por faixa de largura igual: (confiança média, frequência observada, contagem).
+
+    Faixas vazias recebem NaN na confiança e na frequência.
+    """
+    idx = np.clip((prob * n_bins).astype(int), 0, n_bins - 1)
+    counts = np.bincount(idx, minlength=n_bins)
+    with np.errstate(invalid="ignore"):
+        conf = np.bincount(idx, weights=prob, minlength=n_bins) / counts
+        freq = np.bincount(idx, weights=label.astype(float), minlength=n_bins) / counts
+    return conf, freq, counts
+
+
+def ece(prob: np.ndarray, label: np.ndarray, n_bins: int = 10) -> float:
+    """ECE binário: média das diferenças por faixa, ponderada pela contagem."""
+    conf, freq, counts = reliability_bins(prob, label, n_bins)
+    filled = counts > 0
+    return float((counts[filled] * np.abs(conf[filled] - freq[filled])).sum() / counts.sum())
+
+
+def ece_bootstrap(prob: np.ndarray, label: np.ndarray, n_boot: int = 2000,
+                  seed: int = 0) -> tuple[float, float]:
+    """IC de 95% do ECE por bootstrap sobre as fotos."""
+    rng = np.random.default_rng(seed)
+    values = [ece(prob[i], label[i]) for i in rng.integers(0, len(prob), (n_boot, len(prob)))]
+    low, high = np.percentile(values, [2.5, 97.5])
+    return float(low), float(high)
+
+
+

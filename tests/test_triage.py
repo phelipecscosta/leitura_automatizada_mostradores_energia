@@ -35,3 +35,9 @@ def test_frozen_backbone_stays_in_eval_mode():
 def test_unknown_backbone_fails():
     with pytest.raises(ValueError):
         TriageModel("resnet18", pretrained=False)
+
+def test_rejection_score_is_total_probability():
+    from meter_reader.triage import rejection_score
+    assert abs(rejection_score(0.2, 0.5) - 0.6) < 1e-12
+    assert rejection_score(1.0, 0.0) == 1.0   # certamente outros
+    assert rejection_score(0.0, 0.0) == 0.0   # medidor certamente legível

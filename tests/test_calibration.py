@@ -38,3 +38,24 @@ def test_temperature_one_for_already_calibrated_logits():
     zl = rng.normal(0, 2, 20000)
     y = (rng.random(20000) < 1 / (1 + np.exp(-zl))).astype(int)
     assert abs(cal.fit_temperature(cal.legibility_nll, zl, y) - 1) < 0.1
+
+def test_ece_hand_example():
+    # Faixa 9: confiança 0,9, frequência 0,5. Faixa 1: confiança 0,1, frequência 0
+    prob = np.array([0.9, 0.9, 0.1, 0.1])
+    label = np.array([1, 0, 0, 0])
+    assert np.isclose(cal.ece(prob, label), 0.5 * 0.4 + 0.5 * 0.1)
+
+
+def test_ece_small_when_calibrated_and_large_when_overconfident():
+    rng = np.random.default_rng(2)
+    z = rng.normal(0, 2, 20000)
+    y = (rng.random(20000) < 1 / (1 + np.exp(-z))).astype(int)
+    assert cal.ece(cal.legibility_probabilities(z), y) < 0.02
+    assert cal.ece(cal.legibility_probabilities(z * 4), y) > 0.08
+
+
+def test_probabilities_are_valid_and_temperature_softens():
+    logits = np.array([[4.0, 0.0, -4.0]])
+    hot = cal.scene_probabilities(logits, temperature=3.0)
+    assert np.isclose(hot.sum(), 1.0)
+    assert hot.max() < cal.scene_probabilities(logits).max()

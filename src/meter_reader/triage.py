@@ -70,3 +70,12 @@ class TriageModel(nn.Module):
         if self._backbone_frozen:
             self.features.eval()
         return self
+
+def rejection_score(p_outros, p_illegible):
+    """P(rejeitável) = P(outros) + P(medidor) × P(ilegível | medidor).
+
+    Probabilidade total de dois eventos disjuntos: não ser medidor, ou ser
+    medidor ilegível (protocolo do Lab02, seção 2.10). Aceita números,
+    arrays do NumPy ou tensores.
+    """
+    return p_outros + (1 - p_outros) * p_illegible
