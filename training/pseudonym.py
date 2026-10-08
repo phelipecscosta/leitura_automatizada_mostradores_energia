@@ -7,6 +7,8 @@ isso ela só é criada por comando explícito e nunca é sobrescrita.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import secrets
 import sys
 from pathlib import Path
@@ -20,6 +22,39 @@ KEY_BYTES = 32  # 256 bits, o tamanho da saída do SHA-256
 class PseudonymError(RuntimeError):
     """Chave ausente, inválida ou já existente."""
 
+# Prefixo de cada tipo de identificador (item 4 da T2.3)
+PREFIXES = {"arquivo": "F-", "medidor": "M-"}
+CODE_HEX_CHARS = 12  # 48 bits; colisões são verificadas, não supostas
+
+
+def pseudonym(key: bytes, kind: str, value: str) -> str:
+    """Código pseudônimo determinístico de um identificador.
+
+    O tipo entra na mensagem do HMAC: o mesmo texto como arquivo e como
+    medidor gera códigos diferentes, e os dois espaços não se cruzam.
+    O valor é usado exatamente como está, com maiúsculas (regra do pareamento).
+    """
+    if kind not in PREFIXES:
+        raise ValueError("Tipo de identificador desconhecido.")
+    if not value:
+        raise ValueError("Identificador vazio.")
+    message = f"{kind}:{value}".encode("utf-8")
+    digest = hmac.new(key, message, hashlib.sha256).hexdigest()
+    return PREFIXES[kind] + digest[:CODE_HEX_CHARS]
+
+
+def build_mapping(key: bytes, kind: str, values) -> dict[str, str]:
+    """Tabela valor real -> pseudônimo. Falha se dois valores colidirem."""
+    mapping: dict[str, str] = {}
+    owners: set[str] = set()
+    for value in sorted(set(values)):
+        code = pseudonym(key, kind, value)
+        if code in owners:
+            # A mensagem não mostra os valores: eles são dados do cliente
+            raise PseudonymError("Colisão de pseudônimos: aumente CODE_HEX_CHARS.")
+        owners.add(code)
+        mapping[value] = code
+    return mapping
 
 def create_key(path: Path) -> None:
     """Cria a chave como texto hexadecimal. Nunca sobrescreve uma existente."""

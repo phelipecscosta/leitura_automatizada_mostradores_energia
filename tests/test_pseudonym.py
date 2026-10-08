@@ -1,6 +1,7 @@
 """Testes da chave de pseudonimização (training/pseudonym.py)."""
 
 import pytest
+import re
 
 from training import pseudonym as ps
 
@@ -43,3 +44,47 @@ def test_missing_key_fails_without_path(tmp_path):
     with pytest.raises(ps.PseudonymError) as error:
         ps.load_key(tmp_path / ps.KEY_NAME)
     assert str(tmp_path) not in str(error.value)  # mensagem sem caminho (E15)
+
+KEY = bytes(32)        # chave fictícia, só para os testes
+OTHER_KEY = bytes([1]) * 32
+
+
+def test_code_format():
+    code = ps.pseudonym(KEY, "arquivo", "x.jpg")
+    assert re.fullmatch(r"F-[0-9a-f]{12}", code)
+    assert ps.pseudonym(KEY, "medidor", "123").startswith("M-")
+
+
+def test_deterministic_and_key_dependent():
+    code = ps.pseudonym(KEY, "arquivo", "x.jpg")
+    assert code == ps.pseudonym(KEY, "arquivo", "x.jpg")
+    assert code != ps.pseudonym(OTHER_KEY, "arquivo", "x.jpg")
+
+
+def test_kind_and_case_change_the_code():
+    code = ps.pseudonym(KEY, "arquivo", "x.jpg")
+    assert code[2:] != ps.pseudonym(KEY, "medidor", "x.jpg")[2:]
+    assert code != ps.pseudonym(KEY, "arquivo", "X.jpg")
+
+
+@pytest.mark.parametrize("kind, value", [("lote", "x.jpg"), ("arquivo", "")])
+def test_invalid_inputs(kind, value):
+    with pytest.raises(ValueError):
+        ps.pseudonym(KEY, kind, value)
+
+
+def test_mapping_is_complete_and_unique():
+    values = ["b.jpg", "a.jpg", "b.jpg", "c.jpg"]  # com repetição
+    mapping = ps.build_mapping(KEY, "arquivo", values)
+    assert set(mapping) == set(values)
+    assert len(set(mapping.values())) == len(mapping)  # códigos distintos
+
+
+def test_mapping_detects_collision(monkeypatch):
+    # Com 1 caractere hexadecimal há só 16 códigos possíveis:
+    # 17 valores colidem com certeza (princípio da casa dos pombos)
+    monkeypatch.setattr(ps, "CODE_HEX_CHARS", 1)
+    values = [f"foto_{i}.jpg" for i in range(17)]
+    with pytest.raises(ps.PseudonymError) as error:
+        ps.build_mapping(KEY, "arquivo", values)
+    assert not any(v in str(error.value) for v in values)  # sem dados na mensagem
