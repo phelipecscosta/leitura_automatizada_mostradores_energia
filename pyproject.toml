@@ -36,6 +36,10 @@ dev = ["pytest>=8"]
 training = [
     "scikit-learn>=1.6",   # métricas (precisão média) e utilitários de avaliação
     "scikit-image>=0.25",  # HOG da baseline não profunda (D3)
+    "scipy>=1.14",         # Laplaciano da baseline (importado diretamente)
+    "onnx>=1.17",          # formato da exportação (N4)
+    "onnxscript>=0.2",     # exigido pelo exportador ONNX do PyTorch
+    "onnxruntime>=1.20",   # motor de CPU para paridade e latência (N4; motor do produto decidido na ET9)
 ]
 
 [tool.setuptools.packages.find]
