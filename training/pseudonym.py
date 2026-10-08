@@ -102,8 +102,13 @@ def write_table(key: bytes, manifest: Path, output: Path) -> tuple[int, int]:
         writer.writerows(sorted(mapping.items()))
     return len(names), len(mapping)
 
+def lookup(table: Path, codes: list[str]) -> dict[str, str | None]:
+    """Pseudônimo -> nome real, a partir da tabela. None quando não existe."""
+    with table.open(encoding="utf-8", newline="") as file:
+        inverse = {row["pseudonimo"]: row["arquivo"] for row in csv.DictReader(file)}
+    return {code: inverse.get(code) for code in codes}
 
-USAGE = "Uso: python -m training.pseudonym [criar-chave | tabela]"
+USAGE = "Uso: python -m training.pseudonym [criar-chave | tabela | consultar CÓDIGO...]"
 
 
 def main(argv: list[str]) -> None:
@@ -119,6 +124,10 @@ def main(argv: list[str]) -> None:
         # Só contagens e impressões digitais; nunca nomes nem caminhos (E15)
         print(f"Imagens no manifesto: {rows} | entradas na tabela: {entries}")
         print(f"SHA-256 da tabela: {file_sha256(output)}")
+    elif argv[:1] == ["consultar"] and len(argv) > 1:
+        # Mostra nomes reais: uso só local, na auditoria presencial (opção D)
+        for code, name in lookup(work_dir / TABLE_NAME, argv[1:]).items():
+            print(f"{code}  {name or 'não encontrado'}")
     else:
         print(USAGE)
         raise SystemExit(2)

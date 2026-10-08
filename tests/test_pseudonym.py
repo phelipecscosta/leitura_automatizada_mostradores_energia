@@ -103,3 +103,14 @@ def test_write_table(tmp_path):
     assert lines[0] == "arquivo,pseudonimo"
     assert lines[1] == f"a.jpg,{ps.pseudonym(KEY, 'arquivo', 'a.jpg')}"
     assert len(lines) == 3
+
+def test_lookup(tmp_path):
+    manifest = tmp_path / "manifesto.csv"
+    manifest.write_text("lote,arquivo\n2000-01-01,a.jpg\n", encoding="utf-8")
+    table = tmp_path / "tabela.csv"
+    ps.write_table(KEY, manifest, table)
+    code = ps.pseudonym(KEY, "arquivo", "a.jpg")
+    assert ps.lookup(table, [code, "F-000000000000"]) == {
+        code: "a.jpg",
+        "F-000000000000": None,
+    }
