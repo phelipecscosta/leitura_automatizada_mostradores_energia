@@ -1,7 +1,10 @@
 """Testes da calibração por temperatura (training/calibration.py)."""
 
 import numpy as np
+import pytest
+import torch
 
+from training import triage_loss as tl
 from training import calibration as cal
 from training.labels import MASKED, SCENE_METER_ONLY
 
@@ -93,3 +96,34 @@ def test_final_temperature_uses_all_lots_and_fixes_overconfidence():
     before = cal.ece(cal.legibility_probabilities(l), ill)
     after = cal.ece(result.p_illegible, ill)
     assert after < before / 3
+
+def test_log_weights_match_training_weights():
+    scene = np.array([0, 0, 0, 1, 2, SCENE_METER_ONLY])
+    ill = np.array([0, 1, 0, 0, MASKED, 1])
+    log_w, log_pw = cal.log_weights(scene, ill)
+    expected = tl.scene_weights(torch.as_tensor(scene))[:3].double().numpy()
+    assert np.allclose(log_w, np.log(expected))
+    assert np.isclose(log_pw, np.log(tl.legibility_pos_weight(torch.as_tensor(ill)).item()))
+
+
+def test_fold_offsets_ignore_the_held_out_lot():
+    scene = np.array([2, 2, 2, 0, 1, 0, 1, 0, 2])
+    ill = np.array([MASKED, MASKED, MASKED, 0, 1, 1, 0, 0, MASKED])
+    lots = np.array(["A", "A", "A", "B", "B", "B", "C", "C", "C"])
+    scene_off, ill_off = cal.fold_offsets(scene, ill, lots)
+    log_w, log_pw = cal.log_weights(scene[lots != "A"], ill[lots != "A"])
+    assert np.allclose(scene_off[lots == "A"], log_w)
+    assert np.allclose(ill_off[lots == "A"], log_pw)
+
+
+def test_correction_recovers_unweighted_probability():
+    # Com peso w, o mínimo da perda ponderada fica em q = w·p / (w·p + 1 − p)
+    p, w = 0.2, 3.0
+    q = w * p / (w * p + 1 - p)
+    corrected = np.log(q / (1 - q)) - np.log(w)
+    assert np.isclose(corrected, np.log(p / (1 - p)))
+
+
+def test_missing_class_is_refused():
+    with pytest.raises(ValueError):
+        cal.log_weights(np.array([0, 0, 1]), np.array([0, 1, 0]))

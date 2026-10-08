@@ -9,7 +9,9 @@ pesos de classe: a calibração deve refletir as frequências reais.
 from __future__ import annotations
 
 import numpy as np
+import torch
 
+from training import triage_loss as tl
 from meter_reader.triage import SCENE_CLASSES
 from training.labels import MASKED, SCENE_METER_ONLY
 from dataclasses import dataclass
@@ -131,3 +133,35 @@ def calibrate_nested(scene_logits: np.ndarray, illegible_logits: np.ndarray,
     final = (fit_temperature(scene_nll, scene_logits, scene),
              fit_temperature(legibility_nll, illegible_logits, illegible))
     return NestedCalibration(p_scene, p_illegible, per_lot, final)
+
+def log_weights(scene: np.ndarray, illegible: np.ndarray) -> tuple[np.ndarray, float]:
+    """Log dos pesos que o treino usa com estes rótulos: (cena (3,), legibilidade).
+
+    A entropia cruzada ponderada aprende probabilidades proporcionais a
+    w_c × p(c | foto); subtrair log(w_c) do logit desfaz o efeito
+    (protocolo 2.11, revisão de 08/10). O peso do indeterminado não entra,
+    porque não corresponde a um logit.
+    """
+    scene_t = torch.as_tensor(np.asarray(scene, dtype=np.int64))
+    ill_t = torch.as_tensor(np.asarray(illegible, dtype=np.int64))
+    w = tl.scene_weights(scene_t)[: len(SCENE_CLASSES)].double().numpy()
+    if (w == 0).any():
+        raise ValueError("Classe de cena ausente no treino: a correção não é definida.")
+    return np.log(w), float(np.log(tl.legibility_pos_weight(ill_t).item()))
+
+
+def fold_offsets(scene: np.ndarray, illegible: np.ndarray,
+                 lots: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Correção por foto: o log dos pesos do treino da dobra em que ela foi predita.
+
+    Vale para a validação por lote com todo o treino (train_fraction = 1):
+    o treino da dobra de cada lote são os outros lotes. Uso: logit − correção.
+    """
+    scene_off = np.zeros((len(scene), len(SCENE_CLASSES)))
+    ill_off = np.zeros(len(scene))
+    for lot in sorted(set(lots)):
+        held = lots == lot
+        log_w, log_pw = log_weights(scene[~held], illegible[~held])
+        scene_off[held] = log_w
+        ill_off[held] = log_pw
+    return scene_off, ill_off
