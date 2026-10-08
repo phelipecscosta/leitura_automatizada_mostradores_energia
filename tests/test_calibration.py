@@ -59,3 +59,37 @@ def test_probabilities_are_valid_and_temperature_softens():
     hot = cal.scene_probabilities(logits, temperature=3.0)
     assert np.isclose(hot.sum(), 1.0)
     assert hot.max() < cal.scene_probabilities(logits).max()
+
+def _synthetic_lots(scales, n=3000, seed=3):
+    """Um bloco por lote; logits verdadeiros multiplicados pela escala do lote."""
+    rng = np.random.default_rng(seed)
+    s_logits, l_logits, scene, ill, lots = [], [], [], [], []
+    for k, scale in enumerate(scales):
+        z = rng.normal(0, 1.5, (n, 3))
+        p = np.exp(cal._log_softmax(z))
+        scene.append([rng.choice(3, p=pi) for pi in p])
+        zl = rng.normal(0, 2, n)
+        ill.append((rng.random(n) < 1 / (1 + np.exp(-zl))).astype(int))
+        s_logits.append(z * scale)
+        l_logits.append(zl * scale)
+        lots.append([f"lote{k}"] * n)
+    return (np.vstack(s_logits), np.concatenate(l_logits), np.concatenate(scene),
+            np.concatenate(ill), np.concatenate(lots))
+
+
+def test_held_out_lot_uses_temperature_from_other_lots():
+    # lote0 sem exagero; lote1 e lote2 exagerados x3
+    s, l, scene, ill, lots = _synthetic_lots(scales=(1, 3, 3))
+    result = cal.calibrate_nested(s, l, scene, ill, lots)
+    t_scene, t_leg = result.per_lot["lote0"]
+    assert abs(t_scene - 3) < 0.4 and abs(t_leg - 3) < 0.4
+    assert not np.isnan(result.p_scene).any() and not np.isnan(result.p_illegible).any()
+
+
+def test_final_temperature_uses_all_lots_and_fixes_overconfidence():
+    s, l, scene, ill, lots = _synthetic_lots(scales=(3, 3, 3))
+    result = cal.calibrate_nested(s, l, scene, ill, lots)
+    assert all(abs(t - 3) < 0.3 for t in result.final)
+    before = cal.ece(cal.legibility_probabilities(l), ill)
+    after = cal.ece(result.p_illegible, ill)
+    assert after < before / 3

@@ -12,6 +12,7 @@ import numpy as np
 
 from meter_reader.triage import SCENE_CLASSES
 from training.labels import MASKED, SCENE_METER_ONLY
+from dataclasses import dataclass
 
 METER_SLOTS = [SCENE_CLASSES.index("digital"), SCENE_CLASSES.index("ciclometrico")]
 BETA_RANGE = (0.01, 20.0)  # T entre 0,05 e 100
@@ -104,4 +105,29 @@ def ece_bootstrap(prob: np.ndarray, label: np.ndarray, n_boot: int = 2000,
     return float(low), float(high)
 
 
+@dataclass(frozen=True)
+class NestedCalibration:
+    """Resultado da calibração aninhada por lote (protocolo 2.11)."""
+    p_scene: np.ndarray                     # (n, 3), cada lote com T ajustada nos outros
+    p_illegible: np.ndarray                 # (n,), idem
+    per_lot: dict[str, tuple[float, float]]  # lote -> (T da cena, T da legibilidade)
+    final: tuple[float, float]              # ajustadas com todos os lotes (implantação)
 
+
+def calibrate_nested(scene_logits: np.ndarray, illegible_logits: np.ndarray,
+                     scene: np.ndarray, illegible: np.ndarray,
+                     lots: np.ndarray) -> NestedCalibration:
+    """Para cada lote, ajusta as temperaturas nos outros e aplica no lote deixado de fora."""
+    p_scene = np.full(scene_logits.shape, np.nan)
+    p_illegible = np.full(illegible_logits.shape, np.nan)
+    per_lot = {}
+    for lot in sorted(set(lots)):
+        fit, held = lots != lot, lots == lot
+        t_scene = fit_temperature(scene_nll, scene_logits[fit], scene[fit])
+        t_leg = fit_temperature(legibility_nll, illegible_logits[fit], illegible[fit])
+        p_scene[held] = scene_probabilities(scene_logits[held], t_scene)
+        p_illegible[held] = legibility_probabilities(illegible_logits[held], t_leg)
+        per_lot[str(lot)] = (t_scene, t_leg)
+    final = (fit_temperature(scene_nll, scene_logits, scene),
+             fit_temperature(legibility_nll, illegible_logits, illegible))
+    return NestedCalibration(p_scene, p_illegible, per_lot, final)
