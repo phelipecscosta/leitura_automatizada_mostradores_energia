@@ -31,7 +31,7 @@ def scene_weights(targets: torch.Tensor) -> torch.Tensor:
     weights = torch.where(counts > 0, counts.sum() / (N_SCENE * counts.clamp(min=1)),
                           torch.zeros_like(counts))
     meter_counts = counts[METER_SLOTS]
-    partial = (weights[METER_SLOTS] * meter_counts).sum() / meter_counts.sum()
+    partial = (weights[METER_SLOTS] * meter_counts).sum() / meter_counts.sum().clamp(min=1)
     return torch.cat([weights, partial.view(1)])
 
 
