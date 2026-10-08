@@ -21,10 +21,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from meter_reader.config import get_data_dir, get_work_dir
+from meter_reader.triage import SCENE_CLASSES  # fonte única, no produto
 from training.build_manifest import file_sha256
 from training.labeling_sheet import SHEET_NAME
 
-SCENE_CLASSES = ("digital", "ciclometrico", "outros")
 SCENE_METER_ONLY = -1  # indeterminado: sabe-se só que é medidor
 MASKED = -1  # legibilidade não se aplica (foto de "outros")
 
