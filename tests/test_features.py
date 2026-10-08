@@ -5,6 +5,10 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
+import torch
+
+from meter_reader.triage import TriageModel
+
 from training import features as ft
 from training.labels import LabeledPhoto
 
@@ -46,3 +50,55 @@ def test_cache_is_reused_only_for_the_same_photo_list(tmp_path, monkeypatch):
 
     ft.load_or_extract(photos[:2], "baseline_224", tmp_path)  # outra lista: recalcula
     assert len(calls) == 2
+
+def test_extraction_runs_without_tf32(monkeypatch, tmp_path):
+    from meter_reader.triage import TriageModel
+    seen = []
+    original = TriageModel.embed
+
+    def spy(self, x):
+        seen.append(torch.backends.cudnn.allow_tf32)
+        return original(self, x)
+
+    monkeypatch.setattr(TriageModel, "embed", spy)
+    photos = _photos(tmp_path, 2) if "_photos" in globals() else None
+    if photos is None:
+        pytest.skip("Auxiliar de fotos sintéticas com outro nome neste arquivo.")
+    ft.extract(photos, "mobilenet_v3_large_224", pretrained=False)
+    assert seen and not any(seen)
+
+
+def test_old_cache_name_is_ignored(tmp_path):
+    assert ft.CACHE_VERSION in f"caracteristicas_x_{ft.CACHE_VERSION}.npz"
+    old = tmp_path / "caracteristicas_baseline_224.npz"
+    old.write_bytes(b"cache antigo")  # nome sem versão: não pode ser lido
+    path = tmp_path / f"caracteristicas_baseline_224_{ft.CACHE_VERSION}.npz"
+    assert not path.exists()
+
+def test_extraction_runs_without_tf32(tmp_path, monkeypatch):
+    # Espiona o embed: o TF32 precisa estar desligado durante a extração
+    seen = []
+    original = TriageModel.embed
+
+    def spy(self, x):
+        seen.append(torch.backends.cudnn.allow_tf32)
+        return original(self, x)
+
+    monkeypatch.setattr(TriageModel, "embed", spy)
+    ft.extract(make_photos(tmp_path, 2), "mobilenet_v3_large_224", pretrained=False)
+    assert seen and not any(seen)
+
+
+def test_cache_without_version_is_ignored(tmp_path, monkeypatch):
+    photos = make_photos(tmp_path)
+    codes = np.array([p.pseudonym for p in photos])
+    # Cache antigo, válido e com os mesmos pseudônimos, mas sem a versão no nome
+    np.savez(tmp_path / "caracteristicas_baseline_224.npz",
+             codes=codes, features=np.zeros((len(photos), 1859), dtype=np.float32))
+    calls = []
+    real_extract = ft.extract
+    monkeypatch.setattr(ft, "extract", lambda *a, **k: calls.append(1) or real_extract(*a, **k))
+
+    features = ft.load_or_extract(photos, "baseline_224", tmp_path)
+    assert len(calls) == 1 and features.any()  # extraiu de novo; não leu os zeros
+    assert (tmp_path / f"caracteristicas_baseline_224_{ft.CACHE_VERSION}.npz").is_file()

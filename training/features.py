@@ -21,6 +21,10 @@ from training.labels import LabeledPhoto
 
 BASELINE_SHORT_SIDE = 224
 HSV_BINS = (8, 4, 4)
+# Versão do cache: muda quando o cálculo das características muda, para que um
+# cache antigo nunca seja reaproveitado. "fp32": extração em precisão cheia
+# também na GPU (sem TF32), igual à inferência em CPU do produto (T3b.5).
+CACHE_VERSION = "fp32"
 
 # Nome do conjunto -> (espinha dorsal ou "baseline", lado menor; None = nativa)
 FEATURE_SETS = {
@@ -63,7 +67,11 @@ def extract(photos: list[LabeledPhoto], name: str, device: str = "cpu",
     model.freeze_backbone()
     model.eval().to(device)
     chunks = []
-    with torch.no_grad():
+    # Sem TF32: em GPUs Ampere ou mais novas, o padrão do PyTorch arredonda as
+    # convoluções (cerca de 1e-3 relativo), e as características do treino
+    # deixariam de ser iguais às da inferência em CPU
+    with torch.no_grad(), torch.backends.cudnn.flags(enabled=True, benchmark=False,
+                                                     deterministic=False, allow_tf32=False):
         for start in range(0, len(photos), batch_size):
             batch = photos[start:start + batch_size]
             x = torch.stack([to_tensor(_model_image(p.path, short_side)) for p in batch])
@@ -74,7 +82,7 @@ def extract(photos: list[LabeledPhoto], name: str, device: str = "cpu",
 def load_or_extract(photos: list[LabeledPhoto], name: str, cache_dir: Path,
                     device: str = "cpu", pretrained: bool = True) -> np.ndarray:
     """Lê do cache se a lista de fotos for a mesma; senão, extrai e grava."""
-    path = cache_dir / f"caracteristicas_{name}.npz"
+    path = cache_dir / f"caracteristicas_{name}_{CACHE_VERSION}.npz"
     codes = np.array([p.pseudonym for p in photos])
     if path.is_file():
         cached = np.load(path)
