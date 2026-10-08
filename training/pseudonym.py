@@ -7,6 +7,7 @@ isso ela só é criada por comando explícito e nunca é sobrescrita.
 
 from __future__ import annotations
 
+import csv
 import hashlib
 import hmac
 import secrets
@@ -14,9 +15,11 @@ import sys
 from pathlib import Path
 
 from meter_reader.config import get_work_dir
+from training.build_manifest import MANIFEST_NAME, file_sha256
 
 KEY_NAME = "chave_pseudonimos.key"
 KEY_BYTES = 32  # 256 bits, o tamanho da saída do SHA-256
+TABLE_NAME = "tabela_pseudonimos.csv"
 
 
 class PseudonymError(RuntimeError):
@@ -84,12 +87,41 @@ def load_key(path: Path) -> bytes:
     return key
 
 
+def write_table(key: bytes, manifest: Path, output: Path) -> tuple[int, int]:
+    """Grava a tabela arquivo -> pseudônimo de todas as imagens do manifesto.
+
+    Retorna (linhas do manifesto, entradas da tabela). Os dois números devem
+    ser iguais; se não forem, há nomes de arquivo repetidos entre lotes.
+    """
+    with manifest.open(encoding="utf-8", newline="") as file:
+        names = [row["arquivo"] for row in csv.DictReader(file)]
+    mapping = build_mapping(key, "arquivo", names)
+    with output.open("w", encoding="utf-8", newline="") as file:
+        writer = csv.writer(file)
+        writer.writerow(("arquivo", "pseudonimo"))
+        writer.writerows(sorted(mapping.items()))
+    return len(names), len(mapping)
+
+
+USAGE = "Uso: python -m training.pseudonym [criar-chave | tabela]"
+
+
 def main(argv: list[str]) -> None:
-    if argv != ["criar-chave"]:
-        print("Uso: python -m training.pseudonym criar-chave")
+    work_dir = get_work_dir()
+    if argv == ["criar-chave"]:
+        create_key(work_dir / KEY_NAME)
+        print("Chave criada na pasta de trabalho. Inclua-a no backup dessa pasta.")
+    elif argv == ["tabela"]:
+        output = work_dir / TABLE_NAME
+        rows, entries = write_table(
+            load_key(work_dir / KEY_NAME), work_dir / MANIFEST_NAME, output
+        )
+        # Só contagens e impressões digitais; nunca nomes nem caminhos (E15)
+        print(f"Imagens no manifesto: {rows} | entradas na tabela: {entries}")
+        print(f"SHA-256 da tabela: {file_sha256(output)}")
+    else:
+        print(USAGE)
         raise SystemExit(2)
-    create_key(get_work_dir() / KEY_NAME)
-    print("Chave criada na pasta de trabalho. Inclua-a no backup dessa pasta.")
 
 
 if __name__ == "__main__":

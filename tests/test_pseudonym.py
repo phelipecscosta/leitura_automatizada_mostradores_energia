@@ -88,3 +88,18 @@ def test_mapping_detects_collision(monkeypatch):
     with pytest.raises(ps.PseudonymError) as error:
         ps.build_mapping(KEY, "arquivo", values)
     assert not any(v in str(error.value) for v in values)  # sem dados na mensagem
+
+def test_write_table(tmp_path):
+    manifest = tmp_path / "manifesto.csv"
+    manifest.write_text(
+        "lote,arquivo\n2000-01-01,a.jpg\n2000-01-01,b.jpg\n2000-01-02,a.jpg\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "tabela.csv"
+    rows, entries = ps.write_table(KEY, manifest, output)
+    assert (rows, entries) == (3, 2)  # nome repetido aparece na diferença
+
+    lines = output.read_text(encoding="utf-8").splitlines()
+    assert lines[0] == "arquivo,pseudonimo"
+    assert lines[1] == f"a.jpg,{ps.pseudonym(KEY, 'arquivo', 'a.jpg')}"
+    assert len(lines) == 3
