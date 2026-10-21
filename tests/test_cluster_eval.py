@@ -9,8 +9,10 @@ from training.cluster_eval import (
     kmeans_clusters,
     l2_normalize,
     leave_one_lot_out,
+    mean_ap,
     meter_recall_lower,
     one_hot,
+    paired_bootstrap_mean_ap,
 )
 
 
@@ -63,3 +65,23 @@ def test_kmeans_is_deterministic_and_uses_unit_vectors() -> None:
     assert len(set(first[:10])) == 1 and len(set(first[10:])) == 1 and first[0] != first[10]
     np.testing.assert_array_equal(first, kmeans_clusters(x * rng.uniform(1, 9, (20, 1)), 2, seed=0))
     np.testing.assert_allclose(np.linalg.norm(l2_normalize(x), axis=1), 1)
+
+
+
+def test_mean_ap_averages_seeds() -> None:
+    is_outros = np.array([0, 0, 1, 1])
+    perfect, inverted = np.array([0.1, 0.2, 0.8, 0.9]), np.array([0.9, 0.8, 0.2, 0.1])
+    assert mean_ap(np.stack([perfect, perfect]), is_outros) == 1.0
+    # Invertida: AP = (1/3 + 2/4) / 2 = 5/12 (os dois "outros" no fim da ordem)
+    assert mean_ap(np.stack([perfect, inverted]), is_outros) == pytest.approx((1 + 5 / 12) / 2)
+
+
+def test_paired_bootstrap_mean_ap() -> None:
+    rng = np.random.default_rng(0)
+    is_outros = np.array([0] * 60 + [1] * 10)
+    good = np.stack([is_outros + rng.normal(0, 0.3, 70) for _ in range(3)])
+    noise = np.stack([rng.random(70) for _ in range(3)])
+    point, low, high = paired_bootstrap_mean_ap(good, noise, is_outros, n_boot=300)
+    assert low > 0 and low <= point <= high                 # o bom vence o ruído
+    same = paired_bootstrap_mean_ap(good, good, is_outros, n_boot=50)
+    assert same == (0.0, 0.0, 0.0)                          # mesmas predições: diferença nula

@@ -85,3 +85,28 @@ def clustering_metrics(score: np.ndarray, predicted_outros: np.ndarray,
         "f1_macro": float(f1_score(is_outros, predicted_outros, average="macro", zero_division=0)),
         "outros_previstos": int(predicted_outros.sum()),
     }
+
+
+
+def mean_ap(scores: np.ndarray, is_outros: np.ndarray) -> float:
+    """Média, entre as sementes (linhas de `scores`), da AP de "outros"."""
+    return float(np.mean([average_precision_score(is_outros, s) for s in scores]))
+
+
+def paired_bootstrap_mean_ap(scores_a: np.ndarray, scores_b: np.ndarray, is_outros: np.ndarray,
+                             n_boot: int = 2000, seed: int = 0) -> tuple[float, float, float]:
+    """Diferença (A - B) da AP média entre sementes: (pontual, IC 2,5%, IC 97,5%).
+
+    `scores_a` e `scores_b` são matrizes (sementes, fotos) nas mesmas fotos. Em
+    cada reamostragem, as fotos são sorteadas dentro de cada classe (seção 1.7),
+    e a AP de cada semente é calculada nas mesmas fotos antes da média.
+    """
+    point = mean_ap(scores_a, is_outros) - mean_ap(scores_b, is_outros)
+    rng = np.random.default_rng(seed)
+    groups = [np.flatnonzero(is_outros == c) for c in (0, 1)]
+    diffs = np.empty(n_boot)
+    for b in range(n_boot):
+        idx = np.concatenate([rng.choice(g, size=len(g), replace=True) for g in groups])
+        diffs[b] = mean_ap(scores_a[:, idx], is_outros[idx]) - mean_ap(scores_b[:, idx], is_outros[idx])
+    low, high = np.percentile(diffs, [2.5, 97.5])
+    return float(point), float(low), float(high)
