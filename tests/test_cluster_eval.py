@@ -9,10 +9,12 @@ from training.cluster_eval import (
     kmeans_clusters,
     l2_normalize,
     leave_one_lot_out,
+    mapped_outros_score,
     mean_ap,
     meter_recall_lower,
     one_hot,
     paired_bootstrap_mean_ap,
+    typical_photos,
 )
 
 
@@ -85,3 +87,21 @@ def test_paired_bootstrap_mean_ap() -> None:
     assert low > 0 and low <= point <= high                 # o bom vence o ruído
     same = paired_bootstrap_mean_ap(good, good, is_outros, n_boot=50)
     assert same == (0.0, 0.0, 0.0)                          # mesmas predições: diferença nula
+
+
+
+def test_typical_photos_ranks_members_and_pages() -> None:
+    probs = np.array([
+        [0.9, 0.1], [0.6, 0.4], [0.8, 0.2],   # cluster 0, típicas: 0, 2, 1
+        [0.3, 0.7], [0.45, 0.55],             # cluster 1
+    ])
+    assert typical_photos(probs, 0).tolist() == [0, 2, 1]
+    assert typical_photos(probs, 0, start=0, count=2).tolist() == [0, 2]
+    assert typical_photos(probs, 0, start=2, count=2).tolist() == [1]   # segunda rodada
+    assert typical_photos(probs, 1).tolist() == [3, 4]
+
+
+def test_mapped_outros_score_sums_mapped_clusters() -> None:
+    membership = np.array([[0.7, 0.2, 0.1], [0.1, 0.1, 0.8]])
+    score = mapped_outros_score(membership, np.array([False, True, True]))
+    np.testing.assert_allclose(score, [0.3, 0.9])

@@ -110,3 +110,18 @@ def paired_bootstrap_mean_ap(scores_a: np.ndarray, scores_b: np.ndarray, is_outr
         diffs[b] = mean_ap(scores_a[:, idx], is_outros[idx]) - mean_ap(scores_b[:, idx], is_outros[idx])
     low, high = np.percentile(diffs, [2.5, 97.5])
     return float(point), float(low), float(high)
+
+
+
+def typical_photos(probs: np.ndarray, cluster: int, start: int = 0, count: int = 12) -> np.ndarray:
+    """Índices das fotos atribuídas ao cluster, da mais típica para a menos
+    (maior P(cluster | foto)), nas posições [start, start + count) (seção 1.5)."""
+    members = np.flatnonzero(probs.argmax(axis=1) == cluster)
+    order = members[np.argsort(-probs[members, cluster], kind="stable")]
+    return order[start:start + count]
+
+
+def mapped_outros_score(membership: np.ndarray, mapped_outros: np.ndarray) -> np.ndarray:
+    """Escore de "outros" de um mapeamento binário dos clusters (o humano):
+    probabilidade total dos clusters mapeados como "outros"."""
+    return membership @ mapped_outros.astype(float)
