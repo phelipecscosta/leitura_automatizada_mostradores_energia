@@ -13,7 +13,9 @@ from training.scan import (
     _check_sanity,
     evaluation_loss,
     mine_neighbors,
+    run_scan,
     scan_loss,
+    self_label,
 )
 
 
@@ -64,3 +66,30 @@ def test_sanity_rule() -> None:
         _check_sanity([1.0, 2.0, 3.0], spread)       # crescimento contínuo
     with pytest.raises(ScanDivergence):
         _check_sanity([2.0, 1.0], torch.ones(3, 3))  # tudo num cluster
+
+
+
+def test_run_scan_separates_blobs_and_is_deterministic() -> None:
+    views, labels = _blobs()
+    nbrs = mine_neighbors(views[:, 0], 5)
+    cfg = replace(ScanConfig(), n_clusters=2, n_neighbors=5, n_heads=3, epochs=30,
+                  batch_size=32, sl_epochs=5, entropy_weight=2.0)
+    probs, info = run_scan(views, nbrs, seed=0, cfg=cfg)
+    clusters = probs.argmax(axis=1)
+    assert probs.shape == (80, 2)
+    np.testing.assert_allclose(probs.sum(axis=1), 1, atol=1e-5)
+    assert len(set(clusters[labels == 0])) == 1 and len(set(clusters[labels == 1])) == 1
+    assert clusters[0] != clusters[-1]
+    assert info["scan"]["cabeca"] in range(3)
+    again, _ = run_scan(views, nbrs, seed=0, cfg=cfg)
+    np.testing.assert_allclose(probs, again, atol=1e-6)
+
+
+def test_self_label_without_confident_photos_keeps_the_head() -> None:
+    views, _ = _blobs()
+    head = torch.nn.Linear(8, 2)
+    torch.nn.init.zeros_(head.weight)                 # saída uniforme: confiança 0,5
+    torch.nn.init.zeros_(head.bias)
+    kept, info = self_label(head, views, ScanConfig(), seed=0)
+    assert info["sem_fotos_confiantes"]
+    assert torch.equal(kept.weight, head.weight)
