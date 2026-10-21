@@ -13,7 +13,10 @@ mesma foto gere sempre as mesmas vistas.
 from __future__ import annotations
 
 import zlib
+from pathlib import Path
 
+import numpy as np
+import timm
 import torch
 from PIL import Image, ImageStat
 from torchvision.transforms import functional as TF
@@ -76,3 +79,65 @@ def photo_inputs(image: Image.Image, pseudonym: str, n_views: int) -> torch.Tens
     enhanced = enhance(image)
     views = [enhanced] + [augment(enhanced, view_seed(pseudonym, v)) for v in range(1, n_views + 1)]
     return torch.stack([model_input(v) for v in views])
+
+
+
+# ---------------------------------------------------------------------------
+# Modelo, extração e cache
+# ---------------------------------------------------------------------------
+
+MODEL_NAME = "vit_small_patch14_dinov2.lvd142m"  # pesos oficiais (Apache-2.0)
+FEATURE_DIM = 384
+# Versão do cache: muda quando o cálculo muda, para que um cache antigo nunca
+# seja lido. "fp32": precisão cheia também na GPU, como na E33.
+DINO_CACHE_VERSION = "fp32"
+
+
+def load_dinov2(pretrained: bool = True) -> torch.nn.Module:
+    """DINOv2 ViT-S/14 congelado; a saída é o token de classe normalizado (384)."""
+    model = timm.create_model(MODEL_NAME, pretrained=pretrained, num_classes=0,
+                              dynamic_img_size=True)  # aceita grades não quadradas
+    model.requires_grad_(False)
+    return model.eval()
+
+
+def extract_views(paths: list[Path], codes: list[str], n_views: int,
+                  model: torch.nn.Module, device: str = "cpu") -> np.ndarray:
+    """Matriz (n_fotos, 1 + n_views, 384); a posição 0 é a foto original."""
+    if len(paths) != len(codes):
+        raise ValueError("Caminhos e pseudônimos com tamanhos diferentes.")
+    model = model.to(device).eval()
+    chunks = []
+    # Sem TF32 nas convoluções (patch) nem nas multiplicações de matrizes
+    # (atenção): as características do treino devem ser iguais às da CPU
+    previous = torch.get_float32_matmul_precision()
+    torch.set_float32_matmul_precision("highest")
+    try:
+        with torch.no_grad(), torch.backends.cudnn.flags(enabled=True, benchmark=False,
+                                                         deterministic=False, allow_tf32=False):
+            for path, code in zip(paths, codes):
+                with Image.open(path) as image:
+                    x = photo_inputs(image, code, n_views)
+                chunks.append(model(x.to(device)).cpu().numpy())
+    finally:
+        torch.set_float32_matmul_precision(previous)
+    return np.stack(chunks).astype(np.float32)
+
+
+def cache_path(cache_dir: Path, name: str, n_views: int) -> Path:
+    return cache_dir / f"caracteristicas_{name}_vistas{n_views}_{DINO_CACHE_VERSION}.npz"
+
+
+def load_or_extract_views(paths: list[Path], codes: list[str], name: str, n_views: int,
+                          cache_dir: Path, device: str = "cpu",
+                          pretrained: bool = True) -> np.ndarray:
+    """Lê do cache se a lista de pseudônimos for a mesma; senão, extrai e grava."""
+    path = cache_path(cache_dir, name, n_views)
+    codes_array = np.array(codes)
+    if path.is_file():
+        cached = np.load(path)
+        if np.array_equal(cached["codes"], codes_array):
+            return cached["features"]
+    features = extract_views(paths, codes, n_views, load_dinov2(pretrained), device)
+    np.savez(path, codes=codes_array, features=features)
+    return features

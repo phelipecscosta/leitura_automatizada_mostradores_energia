@@ -6,9 +6,14 @@ import torch
 from PIL import Image
 
 from training.dino_features import (
+    FEATURE_DIM,
     PATCH,
     augment,
+    cache_path,
     crop_to_multiple,
+    extract_views,
+    load_dinov2,
+    load_or_extract_views,
     model_input,
     photo_inputs,
     view_seed,
@@ -65,3 +70,66 @@ def test_photo_inputs_original_first_and_same_shape() -> None:
     assert torch.equal(x[0], photo_inputs(photo, "F-abc", n_views=0)[0])
     assert torch.equal(x, photo_inputs(photo, "F-abc", n_views=5))  # determinístico
     assert not torch.equal(x[0], x[1])          # a vista difere da original
+
+
+
+# --- Modelo, extração e cache (pesos aleatórios: sem download nos testes) ---
+
+@pytest.fixture(scope="module")
+def model():
+    return load_dinov2(pretrained=False)
+
+
+@pytest.fixture
+def photo_files(tmp_path):
+    paths = []
+    for i in range(2):
+        path = tmp_path / f"foto_{i}.jpg"
+        _photo(seed=i).save(path, quality=90)
+        paths.append(path)
+    return paths, ["F-aaa", "F-bbb"]
+
+
+def test_load_dinov2_is_frozen_and_outputs_cls(model) -> None:
+    assert all(not p.requires_grad for p in model.parameters())
+    with torch.no_grad():
+        out = model(torch.zeros(2, 3, 294, 224))   # grade 21 x 16, não quadrada
+    assert out.shape == (2, FEATURE_DIM)
+
+
+def test_extract_views_shape_original_and_determinism(model, photo_files) -> None:
+    paths, codes = photo_files
+    with_views = extract_views(paths, codes, 3, model)
+    original_only = extract_views(paths, codes, 0, model)
+    assert with_views.shape == (2, 4, FEATURE_DIM) and with_views.dtype == np.float32
+    np.testing.assert_allclose(with_views[:, 0], original_only[:, 0], atol=1e-5)
+    np.testing.assert_array_equal(with_views, extract_views(paths, codes, 3, model))
+
+
+def test_extract_views_restores_matmul_precision(model, photo_files) -> None:
+    before = torch.get_float32_matmul_precision()
+    extract_views(*photo_files, 0, model)
+    assert torch.get_float32_matmul_precision() == before
+
+
+def test_extract_views_rejects_mismatched_lists(model, photo_files) -> None:
+    paths, codes = photo_files
+    with pytest.raises(ValueError):
+        extract_views(paths, codes[:1], 0, model)
+
+
+def test_cache_is_reused_only_for_the_same_codes(photo_files, tmp_path, monkeypatch) -> None:
+    paths, codes = photo_files
+    first = load_or_extract_views(paths, codes, "teste", 1, tmp_path, pretrained=False)
+    assert cache_path(tmp_path, "teste", 1).is_file()
+
+    # Mesma lista: lê do cache, sem extrair de novo
+    def fail(*args, **kwargs):
+        raise AssertionError("não deveria extrair")
+    monkeypatch.setattr("training.dino_features.extract_views", fail)
+    np.testing.assert_array_equal(
+        load_or_extract_views(paths, codes, "teste", 1, tmp_path, pretrained=False), first)
+
+    # Lista diferente: o cache não serve e a extração é chamada
+    with pytest.raises(AssertionError, match="não deveria extrair"):
+        load_or_extract_views(paths[:1], codes[:1], "teste", 1, tmp_path, pretrained=False)
