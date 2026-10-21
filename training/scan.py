@@ -13,6 +13,7 @@ aumentadas vêm do cache (posições 1 a V); a posição 0 é a foto original.
 from __future__ import annotations
 
 import copy
+import math
 from dataclasses import dataclass
 
 import numpy as np
@@ -40,6 +41,11 @@ class ScanConfig:
     sl_lr: float = 0.03
     sl_epochs: int = 25
     ema_alpha: float = 0.999
+    # Revisão de 20/10 (seção 1.10): vetores de comprimento 1 antes da cabeça,
+    # na mesma geometria dos vizinhos e do K-means; False reproduz a original
+    unit_norm: bool = True
+    # Quase-colapso: menos desta fração dos clusters ocupada ao fim do agrupamento
+    min_occupied_fraction: float = 0.5
 
 
 class ScanDivergence(RuntimeError):
@@ -80,15 +86,15 @@ def evaluation_loss(probs: torch.Tensor, neighbors: torch.Tensor) -> float:
     return float(consistency + (mean_p * mean_p.log()).sum())
 
 
-def _check_sanity(history: list[float], probs: torch.Tensor) -> None:
+def _check_sanity(history: list[float], probs: torch.Tensor, min_occupied: int = 2) -> None:
     """Regra de sanidade sem rótulos (seção 1.4): perda finita, sem crescimento
-    contínuo (alta em todas as épocas) e sem colapso num único cluster."""
+    contínuo (alta em todas as épocas) e pelo menos `min_occupied` clusters ocupados."""
     if not np.all(np.isfinite(history)):
         raise ScanDivergence("Perda inválida (NaN ou infinita).")
     if len(history) > 1 and np.all(np.diff(history) > 0):
         raise ScanDivergence("Perda em crescimento contínuo.")
-    if len(torch.unique(probs.argmax(dim=1))) == 1:
-        raise ScanDivergence("Todas as fotos num único cluster.")
+    if len(torch.unique(probs.argmax(dim=1))) < min_occupied:
+        raise ScanDivergence("Colapso: poucos clusters ocupados.")
 
 
 
@@ -102,6 +108,11 @@ class MultiHead(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return torch.stack([head(x) for head in self.heads])
 
+def _features(views: np.ndarray, cfg: ScanConfig, device: str) -> torch.Tensor:
+    """Tensor (n, 1 + V, d) das características, normalizadas se a configuração pedir."""
+    feats = torch.as_tensor(views, dtype=torch.float32, device=device)
+    return F.normalize(feats, dim=2) if cfg.unit_norm else feats
+
 
 def _random_views(n: int, n_views: int, generator: torch.Generator) -> torch.Tensor:
     """Uma vista aumentada sorteada por foto (posições 1 a n_views)."""
@@ -113,7 +124,7 @@ def train_scan(views: np.ndarray, neighbors: np.ndarray, cfg: ScanConfig, seed: 
     """Fase de agrupamento. Devolve a cabeça escolhida e o diagnóstico."""
     torch.manual_seed(seed)
     generator = torch.Generator().manual_seed(seed)
-    feats = torch.as_tensor(views, dtype=torch.float32, device=device)
+    feats = _features(views, cfg, device)
     nbrs = torch.as_tensor(neighbors, device=device)
     n, n_aug = feats.shape[0], feats.shape[1] - 1
 
@@ -140,7 +151,8 @@ def train_scan(views: np.ndarray, neighbors: np.ndarray, cfg: ScanConfig, seed: 
         probs = model(feats[:, 0]).softmax(dim=2)       # foto original, todas as cabeças
         head_losses = [evaluation_loss(p, nbrs) for p in probs]
     best = int(np.argmin(head_losses))
-    _check_sanity(history, probs[best])
+    _check_sanity(history, probs[best],
+                  min_occupied=max(2, math.ceil(cfg.min_occupied_fraction * cfg.n_clusters)))
     return copy.deepcopy(model.heads[best]), {
         "cabeca": best, "perdas_avaliacao": head_losses, "historico": history,
         "lr": lr or cfg.lr,
@@ -152,7 +164,7 @@ def self_label(head: nn.Linear, views: np.ndarray, cfg: ScanConfig, seed: int,
     """Fase de auto-rotulagem: confiança na foto original, perda numa vista aumentada."""
     torch.manual_seed(seed)
     generator = torch.Generator().manual_seed(seed)
-    feats = torch.as_tensor(views, dtype=torch.float32, device=device)
+    feats = _features(views, cfg, device)
     n, n_aug = feats.shape[0], feats.shape[1] - 1
 
     model = copy.deepcopy(head).to(device)
@@ -211,6 +223,5 @@ def run_scan(views: np.ndarray, neighbors: np.ndarray, seed: int, device: str = 
     head, sl_info = _with_lr_rule(self_label, head, views, cfg, seed, device,
                                   start_lr=cfg.sl_lr)
     with torch.no_grad():
-        feats = torch.as_tensor(views[:, 0], dtype=torch.float32, device=device)
-        probs = head(feats).softmax(dim=1).cpu().numpy()
+        probs = head(_features(views, cfg, device)[:, 0]).softmax(dim=1).cpu().numpy()
     return probs, {"scan": scan_info, "autorrotulagem": sl_info}

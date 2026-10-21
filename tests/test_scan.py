@@ -66,6 +66,8 @@ def test_sanity_rule() -> None:
         _check_sanity([1.0, 2.0, 3.0], spread)       # crescimento contínuo
     with pytest.raises(ScanDivergence):
         _check_sanity([2.0, 1.0], torch.ones(3, 3))  # tudo num cluster
+    with pytest.raises(ScanDivergence):               # quase-colapso: 2 de 4 exigidos
+        _check_sanity([2.0, 1.0], torch.eye(4)[[0, 0, 1, 1]], min_occupied=3)
 
 
 
@@ -93,3 +95,14 @@ def test_self_label_without_confident_photos_keeps_the_head() -> None:
     kept, info = self_label(head, views, ScanConfig(), seed=0)
     assert info["sem_fotos_confiantes"]
     assert torch.equal(kept.weight, head.weight)
+
+
+
+def test_unit_norm_makes_the_scan_scale_invariant() -> None:
+    views, _ = _blobs()
+    nbrs = mine_neighbors(views[:, 0], 5)
+    cfg = replace(ScanConfig(), n_clusters=2, n_neighbors=5, n_heads=2, epochs=5,
+                  batch_size=32, sl_epochs=2, entropy_weight=2.0)
+    small, _ = run_scan(views, nbrs, seed=0, cfg=cfg)
+    large, _ = run_scan(views * 50, nbrs, seed=0, cfg=cfg)   # norma como a do DINOv2
+    np.testing.assert_allclose(small, large, atol=1e-5)
