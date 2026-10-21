@@ -11,6 +11,7 @@ from training.scan import (
     ScanConfig,
     ScanDivergence,
     _check_sanity,
+    cluster_probabilities,
     evaluation_loss,
     mine_neighbors,
     run_scan,
@@ -106,3 +107,14 @@ def test_unit_norm_makes_the_scan_scale_invariant() -> None:
     small, _ = run_scan(views, nbrs, seed=0, cfg=cfg)
     large, _ = run_scan(views * 50, nbrs, seed=0, cfg=cfg)   # norma como a do DINOv2
     np.testing.assert_allclose(small, large, atol=1e-5)
+
+
+
+def test_returned_head_reproduces_the_probabilities() -> None:
+    views, _ = _blobs()
+    nbrs = mine_neighbors(views[:, 0], 5)
+    cfg = replace(ScanConfig(), n_clusters=2, n_neighbors=5, n_heads=2, epochs=5,
+                  batch_size=32, sl_epochs=2, entropy_weight=2.0)
+    probs, info = run_scan(views, nbrs, seed=0, cfg=cfg)
+    again = cluster_probabilities(info["modelo"], views[:, 0], cfg)
+    np.testing.assert_allclose(probs, again, atol=1e-6)

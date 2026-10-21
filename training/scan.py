@@ -222,6 +222,13 @@ def run_scan(views: np.ndarray, neighbors: np.ndarray, seed: int, device: str = 
                                     start_lr=cfg.lr)
     head, sl_info = _with_lr_rule(self_label, head, views, cfg, seed, device,
                                   start_lr=cfg.sl_lr)
+    probs = cluster_probabilities(head, views[:, 0], cfg, device)
+    return probs, {"scan": scan_info, "autorrotulagem": sl_info, "modelo": head.cpu()}
+
+
+def cluster_probabilities(head: nn.Linear, features: np.ndarray, cfg: ScanConfig = ScanConfig(),
+                          device: str = "cpu") -> np.ndarray:
+    """P(cluster | foto) (n, K) de fotos novas, com a mesma normalização do treino."""
     with torch.no_grad():
-        probs = head(_features(views, cfg, device)[:, 0]).softmax(dim=1).cpu().numpy()
-    return probs, {"scan": scan_info, "autorrotulagem": sl_info}
+        x = _features(features[:, None, :], cfg, device)[:, 0]
+        return head.to(device)(x).softmax(dim=1).cpu().numpy()
