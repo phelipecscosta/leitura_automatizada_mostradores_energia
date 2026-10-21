@@ -40,6 +40,7 @@ training = [
     "onnx>=1.17",          # formato da exportação (N4)
     "onnxscript>=0.2",     # exigido pelo exportador ONNX do PyTorch
     "onnxruntime>=1.20",   # motor de CPU para paridade e latência (N4; motor do produto decidido na ET9)
+    "timm>=1.0",           # DINOv2 com os pesos oficiais (rubrica de ML; não vai para o produto)
 ]
 
 [tool.setuptools.packages.find]
