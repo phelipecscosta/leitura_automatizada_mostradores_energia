@@ -39,7 +39,6 @@ class Reason(StrEnum):
     A ordem de declaração é a ordem do pipeline e decide qual motivo
     prevalece quando mais de um se aplica (spec 2.5, item 1.7). Não reordene.
     """
-
     CORRUPTED = "Arquivo corrompido ou vazio"
     NOT_IN_EXTRACTION = "Sem registro na tabela BaseExtracao"
     NOT_A_METER = "Não é medidor"
@@ -52,6 +51,10 @@ class Reason(StrEnum):
     WRONG_FUNCTION = "Função incorreta"
     HIGH_CRITICALITY = "Cliente de alta criticidade"
     OUT_OF_PARAMETERS = "Leitura fora dos Parâmetros"
+
+# Classes de saída da triagem, na ordem do contrato (spec v11, 2.5, item 5; E49).
+# No colapso binário, "medidor" soma as quatro primeiras.
+PRODUCT_CLASSES = ("digital", "ciclometrico", "indeterminado", "multiplos", "outros")
 
 
 def first_reason(reasons: Iterable[Reason]) -> Reason:
