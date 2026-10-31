@@ -55,3 +55,40 @@ def test_unlabeled_counts_ignore_test_and_broken_photos():
     rows = build_group_labels([("Múltiplos", "2026-05-20_0.jpg")], manifest, mapping)
     # treino: 6 fotos, 1 não íntegra, 1 rotulada -> 4; validação: 3; teste: fora
     assert unlabeled_counts(rows, manifest, mapping) == {"treino": 4, "validacao": 3}
+
+from training.labels import TEST_SUBSET
+
+
+def test_rank_prefix_is_removed_only_when_the_rest_is_known():
+    manifest = _manifest()
+    rows = build_group_labels([("Múltiplos", "0007_2026-05-20_0.jpg")], manifest, _mapping(manifest))
+    assert rows[0]["pseudonimo"] == _mapping(manifest)["2026-05-20_0.jpg"]
+    # Nome truncado (como os 908 da T4e.1): continua recusado
+    with pytest.raises(GroupLabelError, match="fora do manifesto"):
+        build_group_labels([("Múltiplos", "0007_026-05-20_0.jpg")], manifest, _mapping(manifest))
+
+
+def test_same_photo_with_two_rank_prefixes_is_refused():
+    manifest = _manifest()
+    found = [("Múltiplos", "0001_2026-05-20_0.jpg"), ("Digital 3 - Vidro redondo", "0002_2026-05-20_0.jpg")]
+    with pytest.raises(GroupLabelError, match="mais de uma pasta"):
+        build_group_labels(found, manifest, _mapping(manifest))
+
+
+def test_test_part_accepts_only_paired_photos_of_the_test_lot():
+    manifest = _manifest()
+    mapping = _mapping(manifest)
+    rows = build_group_labels([("Múltiplos", "2026-07-03_1.jpg")], manifest, mapping, TEST_SUBSET)
+    assert rows[0]["conjunto"] == TEST_SUBSET
+    with pytest.raises(GroupLabelError, match="fora do lote de teste"):
+        build_group_labels([("Múltiplos", "2026-05-22_1.jpg")], manifest, mapping, TEST_SUBSET)
+    with pytest.raises(GroupLabelError, match="órfã"):
+        build_group_labels([("Múltiplos", "2026-07-03_0.jpg")], manifest, mapping, TEST_SUBSET)
+
+
+def test_unlabeled_counts_in_test_part_use_only_paired_test_photos():
+    manifest = _manifest()
+    mapping = _mapping(manifest)
+    rows = build_group_labels([("Múltiplos", "2026-07-03_1.jpg")], manifest, mapping, TEST_SUBSET)
+    # teste: 2 pareadas íntegras (_1 e _2), 1 rotulada -> 1; a órfã (_0) fica fora
+    assert unlabeled_counts(rows, manifest, mapping, TEST_SUBSET) == {TEST_SUBSET: 1}
