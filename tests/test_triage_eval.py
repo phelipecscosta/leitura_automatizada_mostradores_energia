@@ -83,3 +83,34 @@ def test_paired_diff_is_zero_for_same_model_and_sign_is_right():
     assert point == low == high == 0.0
     point, low, high = te.paired_coverage_diff(SCORE, 0.3, SCORE, 0.95, LABELS, n_boot=200)
     assert point == pytest.approx(3 / 4) and low <= point <= high
+
+
+import json  # noqa: E402
+
+CODES = ["F-00000000000a", "F-00000000000b"]
+LOTS = ["2026-05-20", "2026-05-21"]
+
+
+def test_save_and_load_average_seeds(tmp_path):
+    logits = np.stack([np.zeros((2, 12)), np.full((2, 12), 2.0)])  # duas sementes
+    path = te.save_oof(tmp_path, "c0_teste", CODES, LOTS, logits, {"lr": 1}, "a" * 64)
+    record = json.loads(path.with_suffix(".json").read_text(encoding="utf-8"))
+    assert record["sementes"] == 2 and record["sha256_rotulos"] == "a" * 64
+    assert np.allclose(te.load_oof(tmp_path, "c0_teste", CODES), 1.0)
+
+
+def test_save_refuses_overwrite_nan_and_wrong_shape(tmp_path):
+    logits = np.zeros((1, 2, 12))
+    te.save_oof(tmp_path, "c0", CODES, LOTS, logits, {}, "a" * 64)
+    with pytest.raises(FileExistsError):
+        te.save_oof(tmp_path, "c0", CODES, LOTS, logits, {}, "a" * 64)
+    with pytest.raises(ValueError, match="sem logit"):
+        te.save_oof(tmp_path, "c1", CODES, LOTS, np.full((1, 2, 12), np.nan), {}, "a" * 64)
+    with pytest.raises(ValueError, match="forma"):
+        te.save_oof(tmp_path, "c2", CODES, LOTS, np.zeros((2, 12)), {}, "a" * 64)
+
+
+def test_load_refuses_other_photo_list(tmp_path):
+    te.save_oof(tmp_path, "c0", CODES, LOTS, np.zeros((1, 2, 12)), {}, "a" * 64)
+    with pytest.raises(ValueError, match="pseudônimos"):
+        te.load_oof(tmp_path, "c0", CODES[::-1])

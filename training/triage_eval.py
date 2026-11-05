@@ -153,3 +153,54 @@ def paired_coverage_diff(score_a, threshold_a, score_b, threshold_b, labels,
     point = (hit_a.sum() - hit_b.sum()) / rejectable.sum()
     low, high = np.percentile(diffs, [2.5, 97.5])
     return float(point), float(low), float(high)
+
+# ---------------------------------------------------------------------
+# Logits fora da dobra gravados (revisão R3; rastreabilidade)
+# ---------------------------------------------------------------------
+
+import json  # noqa: E402
+from datetime import datetime  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+from training.evaluation import _product_commit  # noqa: E402
+
+OOF_FOLDER = Path("experimentos") / "triagem5"
+
+
+def save_oof(work_dir: Path, name: str, codes: list[str], lots: list[str],
+             logits_per_seed: np.ndarray, config: dict, labels_sha256: str) -> Path:
+    """Grava (sementes, n, saídas) em .npz e os metadados em .json; nunca sobrescreve."""
+    logits_per_seed = np.asarray(logits_per_seed, dtype=np.float32)
+    if logits_per_seed.ndim != 3 or logits_per_seed.shape[1] != len(codes):
+        raise ValueError("Logits devem ter a forma (sementes, fotos, saídas).")
+    if np.isnan(logits_per_seed).any():
+        raise ValueError("Há fotos sem logit fora da dobra.")
+
+    folder = work_dir / OOF_FOLDER
+    folder.mkdir(parents=True, exist_ok=True)
+    base = folder / name
+    if base.with_suffix(".npz").exists():
+        raise FileExistsError("Resultado já gravado; use outro nome para uma nova execução.")
+
+    np.savez(base.with_suffix(".npz"), codes=np.array(codes), lots=np.array(lots),
+             logits=logits_per_seed)
+    record = {
+        "nome": name,
+        "data": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "commit_produto": _product_commit(),
+        "sha256_rotulos": labels_sha256,
+        "sementes": int(logits_per_seed.shape[0]),
+        "saidas": int(logits_per_seed.shape[2]),
+        "configuracao": config,
+    }
+    base.with_suffix(".json").write_text(json.dumps(record, ensure_ascii=False, indent=2),
+                                         encoding="utf-8")
+    return base.with_suffix(".npz")
+
+
+def load_oof(work_dir: Path, name: str, codes: list[str]) -> np.ndarray:
+    """Logits combinados pela média das sementes (E31), na ordem de `codes`."""
+    data = np.load(work_dir / OOF_FOLDER / f"{name}.npz")
+    if not np.array_equal(data["codes"], np.array(codes)):
+        raise ValueError("Os pseudônimos gravados não correspondem à lista de fotos.")
+    return data["logits"].mean(axis=0)
