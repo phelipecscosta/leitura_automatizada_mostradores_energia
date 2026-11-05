@@ -13,6 +13,7 @@ SPEC_STATUS = [
     "Necessita de verificação",
     "Rejeitada - Outros",
     "Rejeitada - Baixa qualidade",
+    "Rejeitada - Múltiplos medidores",
     "Rejeitada - Corrompida",
     "Rejeitada - Não listada em BaseExtracao",
     "Não processada",
@@ -21,9 +22,11 @@ SPEC_REASONS_IN_PIPELINE_ORDER = [
     "Arquivo corrompido ou vazio",
     "Sem registro na tabela BaseExtracao",
     "Não é medidor",
-    "Ilegível",
+    "Indeterminação do tipo de medidor",
+    "Múltiplos medidores",
     "Não listado na tabela fornecida com os parâmetros",
     "Tipo divergente entre triagem e detector",
+    "Falha na extração",
     "Confiança baixa",
     "Número do medidor divergente do registro",
     "Leitura de consumo divergente do registro",
@@ -172,3 +175,18 @@ def test_orphan_image_is_rejected_as_not_listed() -> None:
 def test_pairing_rejects_row_of_another_photo() -> None:
     with pytest.raises(ValueError):
         PairingResult("outra.jpg", row=_row())
+
+
+def test_triage_rejections_match_spec() -> None:
+    from meter_reader.contracts import PRODUCT_CLASSES, TRIAGE_REJECTIONS
+
+    # As três classes rejeitáveis são as últimas do contrato (spec v12, 2.5, item 5)
+    assert tuple(TRIAGE_REJECTIONS) == PRODUCT_CLASSES[2:]
+    expected = {
+        "indeterminado": ("Rejeitada - Baixa qualidade", "Indeterminação do tipo de medidor"),
+        "multiplos": ("Rejeitada - Múltiplos medidores", "Múltiplos medidores"),
+        "outros": ("Rejeitada - Outros", "Não é medidor"),
+    }
+    for product_class, (status, reason) in expected.items():
+        rejection = TRIAGE_REJECTIONS[product_class]
+        assert (rejection.status, rejection.reason) == (status, reason)

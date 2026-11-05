@@ -22,29 +22,33 @@ from enum import StrEnum
 
 
 class Status(StrEnum):
-    """Status de uma imagem na planilha de controle (spec 2.5, item 1.5)."""
+    """Status de uma imagem na planilha de controle (spec v12, 2.5, item 1.5)."""
 
     APPROVED = "Processada com sucesso"
     NEEDS_REVIEW = "Necessita de verificação"
     REJECTED_OTHER = "Rejeitada - Outros"
     REJECTED_LOW_QUALITY = "Rejeitada - Baixa qualidade"
+    REJECTED_MULTIPLE = "Rejeitada - Múltiplos medidores"
     REJECTED_CORRUPTED = "Rejeitada - Corrompida"
     REJECTED_NOT_LISTED = "Rejeitada - Não listada em BaseExtracao"
     NOT_PROCESSED = "Não processada"
 
 
 class Reason(StrEnum):
-    """Motivo de rejeição ou verificação (spec 2.5, item 1.6).
+    """Motivo de rejeição ou verificação (spec v12, 2.5, item 1.6).
 
     A ordem de declaração é a ordem do pipeline e decide qual motivo
     prevalece quando mais de um se aplica (spec 2.5, item 1.7). Não reordene.
     """
+
     CORRUPTED = "Arquivo corrompido ou vazio"
     NOT_IN_EXTRACTION = "Sem registro na tabela BaseExtracao"
     NOT_A_METER = "Não é medidor"
-    ILLEGIBLE = "Ilegível"
+    INDETERMINATE_TYPE = "Indeterminação do tipo de medidor"
+    MULTIPLE_METERS = "Múltiplos medidores"
     NOT_IN_PARAMETERS = "Não listado na tabela fornecida com os parâmetros"
     TYPE_MISMATCH = "Tipo divergente entre triagem e detector"
+    EXTRACTION_FAILURE = "Falha na extração"
     LOW_CONFIDENCE = "Confiança baixa"
     METER_NUMBER_MISMATCH = "Número do medidor divergente do registro"
     READING_MISMATCH = "Leitura de consumo divergente do registro"
@@ -77,6 +81,14 @@ class Rejection:
 # Pares definidos pela spec (2.5, itens 2.3 e 2.4)
 REJECTION_CORRUPTED = Rejection(Status.REJECTED_CORRUPTED, Reason.CORRUPTED)
 REJECTION_NOT_LISTED = Rejection(Status.REJECTED_NOT_LISTED, Reason.NOT_IN_EXTRACTION)
+
+# Rejeições da triagem por classe do produto (spec v12, 2.5, itens 6 e 7).
+# Digital e ciclométrico não são rejeitados: seguem para o detector.
+TRIAGE_REJECTIONS = {
+    "indeterminado": Rejection(Status.REJECTED_LOW_QUALITY, Reason.INDETERMINATE_TYPE),
+    "multiplos": Rejection(Status.REJECTED_MULTIPLE, Reason.MULTIPLE_METERS),
+    "outros": Rejection(Status.REJECTED_OTHER, Reason.NOT_A_METER),
+}
 
 # ---------------------------------------------------------------------
 # Entrada: BaseExtracao
