@@ -48,7 +48,8 @@ def test_models_output_twelve_logits_and_train_whole_network(candidate, shape):
 
 from training.finetune import TrainConfig, lr_factor, train_one  # noqa: E402
 
-TINY = TrainConfig(lr=1e-3, head_lr=None, max_epochs=2, batch=4, micro_batch=2, amp=False)
+TINY = TrainConfig(lr=1e-3, head_lr=None, max_epochs=2, batch=4, micro_batch=2, amp=False,
+                   num_workers=0)
 
 
 def test_lr_factor_warmup_then_cosine():

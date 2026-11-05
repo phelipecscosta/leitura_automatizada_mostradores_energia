@@ -110,9 +110,9 @@ class TrainConfig:
     weight_decay: float = 0.05
     warmup_epochs: int = 1
     batch: int = 32                # lote efetivo
-    micro_batch: int = 16          # acumulação: batch / micro_batch passos por atualização
+    micro_batch: int = 32          # = batch: sem acumulação, porque o lote cabe na memória (1.3)
     amp: bool = True
-    num_workers: int = 0           # Windows: começar sem processos auxiliares
+    num_workers: int = 6           # processos que preparam as fotos enquanto a GPU trabalha
 
 
 CONFIGS = {
@@ -142,12 +142,22 @@ def no_tf32():
         torch.set_float32_matmul_precision(previous)
 
 
-def predict(model, dataset, device: str, batch: int = 32) -> np.ndarray:
+def make_loader(dataset, cfg: TrainConfig, device: str, shuffle: bool = False,
+                generator: torch.Generator | None = None) -> DataLoader:
+    """Carregador criado uma vez por execução. No Windows, cada criação dos
+    processos auxiliares custa cerca de 27 s (medido): nunca recriar por época."""
+    return DataLoader(dataset, batch_size=cfg.micro_batch if shuffle else cfg.batch,
+                      shuffle=shuffle, num_workers=cfg.num_workers,
+                      persistent_workers=cfg.num_workers > 0,
+                      pin_memory=device.startswith("cuda"), generator=generator)
+
+
+def predict(model, loader: DataLoader, device: str) -> np.ndarray:
     """Logits em FP32, sem TF32 e sem aumentação: o que é avaliado e entregue."""
     model.eval()
     chunks = []
     with torch.no_grad(), no_tf32():
-        for x, _ in DataLoader(dataset, batch_size=batch, shuffle=False):
+        for x, _ in loader:
             chunks.append(model(x.to(device)).float().cpu().numpy())
     return np.concatenate(chunks)
 
@@ -182,9 +192,14 @@ def train_one(candidate: str, train_set: PhotoDataset, internal_set: PhotoDatase
     correction = 0.0 if output_weight is None else np.log(output_weight)
     use_amp = cfg.amp and device.startswith("cuda")
     scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
-    loader = DataLoader(train_set, batch_size=cfg.micro_batch, shuffle=True,
-                        num_workers=cfg.num_workers,
-                        generator=torch.Generator().manual_seed(run_seed))
+    # persistent_workers: os processos auxiliares sobrevivem entre as épocas (no Windows,
+    # criá-los custa alguns segundos). A vista de cada foto depende só da semente e da
+    # época (epoch_seed), então o paralelismo não muda nenhuma vista.
+    # Os processos auxiliares sobrevivem entre as épocas. A vista de cada foto depende
+    # só da semente e da época (epoch_seed), então o paralelismo não muda nenhuma vista.
+    loader = make_loader(train_set, cfg, device, shuffle=True,
+                         generator=torch.Generator().manual_seed(run_seed))
+    internal_loader = make_loader(internal_set, cfg, device)
 
     best = (math.inf, 0, None)  # (perda interna, época, pesos)
     history = []
@@ -203,7 +218,7 @@ def train_one(candidate: str, train_set: PhotoDataset, internal_set: PhotoDatase
                 optimizer.zero_grad(set_to_none=True)
                 scheduler.step()
 
-        internal = predict(model, internal_set, device) - correction
+        internal = predict(model, internal_loader, device) - correction
         nll = class_nll(internal, internal_class)
         history.append(nll)
         if nll < best[0]:
@@ -211,4 +226,5 @@ def train_one(candidate: str, train_set: PhotoDataset, internal_set: PhotoDatase
         log(f"época {epoch}: perda interna {nll:.4f} ({(time.perf_counter() - start) / 60:.1f} min)")
 
     model.load_state_dict(best[2])
-    return predict(model, held_set, device) - correction, best[1], history
+    held = predict(model, make_loader(held_set, cfg, device), device) - correction
+    return held, best[1], history
