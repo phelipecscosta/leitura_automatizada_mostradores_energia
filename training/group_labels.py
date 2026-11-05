@@ -102,3 +102,32 @@ def folder_label(relative_folder: str) -> tuple[str, str]:
 def product_class(group: str) -> str:
     """Classe do produto de um grupo canônico."""
     return GROUPS[group][1]
+
+# ---------------------------------------------------------------------
+# Grupos de treino (protocolo da triagem, seção 1.1, opção U-b)
+# ---------------------------------------------------------------------
+
+# Grupos com menos de 30 fotos, fundidos pela descrição. O arquivo de rótulos
+# guarda o grupo original; a fusão só acontece no carregamento.
+MERGES = {
+    "dig5_pequenino": "dig1_quadrado_branco",
+    "out_poste": "out_sem_contexto",
+}
+
+# Ordem fixa das saídas do modelo: pela classe do produto e, dentro dela, pelo
+# código. Mudar esta ordem invalida qualquer modelo treinado.
+TRAINING_GROUPS = tuple(sorted(
+    (g for g in GROUPS if g not in MERGES),
+    key=lambda g: (PRODUCT_CLASSES.index(product_class(g)), g),
+))
+
+# Classe do produto (índice em PRODUCT_CLASSES) de cada saída do modelo:
+# é o mapa usado para somar as probabilidades dos grupos por classe
+TRAINING_GROUP_CLASS = tuple(PRODUCT_CLASSES.index(product_class(g)) for g in TRAINING_GROUPS)
+
+
+def training_group(group: str) -> str:
+    """Grupo de treino de um grupo do arquivo de rótulos (aplica a fusão)."""
+    if group not in GROUPS:
+        raise ValueError(f"Grupo desconhecido: {group}")
+    return MERGES.get(group, group)

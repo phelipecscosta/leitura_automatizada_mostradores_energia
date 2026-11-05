@@ -46,3 +46,31 @@ def test_folder_label_accepts_decomposed_accents():
 def test_unknown_folder_is_refused():
     with pytest.raises(LabelFolderError):
         folder_label("Digital 6 - Inexistente")
+
+from training.group_labels import (  # noqa: E402
+    MERGES, TRAINING_GROUP_CLASS, TRAINING_GROUPS, training_group,
+)
+
+
+def test_twelve_training_groups_after_merge():
+    assert len(TRAINING_GROUPS) == 12
+    assert not set(MERGES) & set(TRAINING_GROUPS)
+
+
+def test_merge_never_crosses_product_class():
+    for source, target in MERGES.items():
+        assert target in TRAINING_GROUPS  # destino existe e não é fundido de novo
+        assert product_class(source) == product_class(target)
+
+
+def test_training_groups_ordered_by_product_class():
+    # Classes em ordem não decrescente: os grupos de cada classe ficam contíguos
+    assert list(TRAINING_GROUP_CLASS) == sorted(TRAINING_GROUP_CLASS)
+    assert set(TRAINING_GROUP_CLASS) == set(range(len(PRODUCT_CLASSES)))
+
+
+def test_training_group_applies_merge_and_refuses_unknown():
+    assert training_group("dig5_pequenino") == "dig1_quadrado_branco"
+    assert training_group("multiplos") == "multiplos"
+    with pytest.raises(ValueError):
+        training_group("dig6_inexistente")
