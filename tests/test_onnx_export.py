@@ -3,7 +3,7 @@
 import numpy as np
 import torch
 
-from meter_reader.triage import TriageModel
+from training.lab02_triage import TriageModel
 from training.onnx_export import INPUT_NAME, cpu_session, export_onnx, run_onnx
 
 

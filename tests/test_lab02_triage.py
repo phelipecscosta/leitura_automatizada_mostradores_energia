@@ -1,9 +1,9 @@
-"""Testes do modelo de triagem (meter_reader/triage.py)."""
+"""Testes do modelo de triagem (training/lab02_triage.py)."""
 
 import pytest
 import torch
 
-from meter_reader.triage import BACKBONES, SCENE_CLASSES, TriageModel
+from training.lab02_triage import BACKBONES, SCENE_CLASSES, TriageModel
 
 
 @pytest.mark.parametrize("backbone", list(BACKBONES))
@@ -37,7 +37,7 @@ def test_unknown_backbone_fails():
         TriageModel("resnet18", pretrained=False)
 
 def test_rejection_score_is_total_probability():
-    from meter_reader.triage import rejection_score
+    from training.lab02_triage import rejection_score
     assert abs(rejection_score(0.2, 0.5) - 0.6) < 1e-12
     assert rejection_score(1.0, 0.0) == 1.0   # certamente outros
     assert rejection_score(0.0, 0.0) == 0.0   # medidor certamente legível

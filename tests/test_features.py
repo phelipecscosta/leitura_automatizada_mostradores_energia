@@ -7,7 +7,7 @@ from PIL import Image
 
 import torch
 
-from meter_reader.triage import TriageModel
+from training.lab02_triage import TriageModel
 
 from training import features as ft
 from training.labels import LabeledPhoto
@@ -52,7 +52,7 @@ def test_cache_is_reused_only_for_the_same_photo_list(tmp_path, monkeypatch):
     assert len(calls) == 2
 
 def test_extraction_runs_without_tf32(monkeypatch, tmp_path):
-    from meter_reader.triage import TriageModel
+    from training.lab02_triage import TriageModel
     seen = []
     original = TriageModel.embed
 

@@ -12,7 +12,7 @@ from __future__ import annotations
 import torch
 import torch.nn.functional as F
 
-from meter_reader.triage import SCENE_CLASSES
+from training.lab02_triage import SCENE_CLASSES
 from training.labels import MASKED, SCENE_METER_ONLY
 
 N_SCENE = len(SCENE_CLASSES)

@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from meter_reader.config import get_data_dir, get_work_dir
-from meter_reader.triage import SCENE_CLASSES  # fonte única, no produto
+from training.lab02_triage import SCENE_CLASSES  # fonte única do Lab02
 from training.build_manifest import file_sha256
 from training.labeling_sheet import SHEET_NAME
 

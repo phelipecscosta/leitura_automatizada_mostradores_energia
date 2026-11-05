@@ -1,4 +1,6 @@
-"""Modelo de triagem: espinha dorsal pré-treinada com duas cabeças.
+"""Modelo de triagem do Lab02 (E26 e E30), fora do produto desde a ET4f.
+
+Espinha dorsal pré-treinada com duas cabeças.
 
 Cabeça de cena: 3 logits (digital, ciclométrico, outros), com softmax na
 inferência. Cabeça de legibilidade: 1 logit de "ilegível", com sigmoide na

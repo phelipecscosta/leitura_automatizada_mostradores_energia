@@ -12,7 +12,7 @@ import numpy as np
 import torch
 from torch import nn
 
-from meter_reader.triage import SCENE_CLASSES
+from training.lab02_triage import SCENE_CLASSES
 from training import triage_loss as tl
 from training.labels import TEST_SUBSET, LabeledPhoto
 

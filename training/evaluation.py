@@ -15,7 +15,7 @@ from pathlib import Path
 import numpy as np
 from sklearn.metrics import average_precision_score
 
-from meter_reader.triage import SCENE_CLASSES
+from training.lab02_triage import SCENE_CLASSES
 from training.build_sample import ROLE_ZERO
 from training.labels import MASKED, SCENE_METER_ONLY, LabeledPhoto
 

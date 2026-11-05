@@ -16,7 +16,7 @@ from scipy.ndimage import laplace
 from skimage.feature import hog
 
 from meter_reader.preprocess import enhance, resize_short_side, to_tensor
-from meter_reader.triage import TriageModel
+from training.lab02_triage import TriageModel
 from training.labels import LabeledPhoto
 
 BASELINE_SHORT_SIDE = 224

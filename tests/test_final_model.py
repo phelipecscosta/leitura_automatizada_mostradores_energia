@@ -8,7 +8,7 @@ import pytest
 
 from training.labels import MASKED, LabeledPhoto
 from pathlib import Path
-from meter_reader.triage import TriageModel
+from training.lab02_triage import TriageModel
 from training.cross_validation import LinearHeads
 from training.final_model import fold_heads
 from training.final_model import METADATA_NAME, save_final, train_final

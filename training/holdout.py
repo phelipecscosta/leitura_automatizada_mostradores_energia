@@ -11,7 +11,7 @@ from __future__ import annotations
 import numpy as np
 import torch
 
-from meter_reader.triage import SCENE_CLASSES, rejection_score
+from training.lab02_triage import SCENE_CLASSES, rejection_score
 from training.labels import MASKED
 from training.risk_coverage import clopper_pearson_upper
 
