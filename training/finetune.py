@@ -91,6 +91,7 @@ def build(candidate: str, n_outputs: int, pretrained: bool = True):
 # ---------------------------------------------------------------------
 
 import copy  # noqa: E402
+import gc    # noqa: E402
 import math  # noqa: E402
 import time  # noqa: E402
 from contextlib import contextmanager  # noqa: E402
@@ -113,6 +114,7 @@ class TrainConfig:
     micro_batch: int = 32          # = batch: sem acumulação, porque o lote cabe na memória (1.3)
     amp: bool = True
     num_workers: int = 6           # processos que preparam as fotos enquanto a GPU trabalha
+    eval_workers: int = 2          # predição: poucas fotos; menos processos reservando memória
 
 
 CONFIGS = {
@@ -147,8 +149,9 @@ def make_loader(dataset, cfg: TrainConfig, device: str, shuffle: bool = False,
     """Carregador criado uma vez por execução. No Windows, cada criação dos
     processos auxiliares custa cerca de 27 s (medido): nunca recriar por época."""
     return DataLoader(dataset, batch_size=cfg.micro_batch if shuffle else cfg.batch,
-                      shuffle=shuffle, num_workers=cfg.num_workers,
-                      persistent_workers=cfg.num_workers > 0,
+                      shuffle=shuffle,
+                      num_workers=cfg.num_workers if shuffle else cfg.eval_workers,
+                      persistent_workers=(cfg.num_workers if shuffle else cfg.eval_workers) > 0,
                       pin_memory=device.startswith("cuda"), generator=generator)
 
 
@@ -225,6 +228,11 @@ def train_one(candidate: str, train_set: PhotoDataset, internal_set: PhotoDatase
             best = (nll, epoch, {k: v.detach().cpu().clone() for k, v in model.state_dict().items()})
         log(f"época {epoch}: perda interna {nll:.4f} ({(time.perf_counter() - start) / 60:.1f} min)")
 
+     # Encerra os processos do treino e da divisão interna antes de criar os da predição
+    # final: no Windows, cada processo reserva 1 a 2 GB ao carregar o CUDA, e 18 processos
+    # simultâneos esgotaram a memória virtual (WinError 1455, medido na primeira execução)
+    del loader, internal_loader
+    gc.collect()
     model.load_state_dict(best[2])
     held = predict(model, make_loader(held_set, cfg, device), device) - correction
     return held, best[1], history
