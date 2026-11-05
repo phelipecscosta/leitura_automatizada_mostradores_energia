@@ -105,6 +105,10 @@ DEV_LABELS = ("rotulos_grupos.csv",
               "e521acd484c3b46d3b5cd312edc327dbc3e830917a5d1185030ff2384cd3d5b4")
 TEST_LABELS = ("rotulos_grupos_teste.csv",
                "e98bee885c5ae8898c40b45b2174b853cf81d28a2028332e511f01c72e3645c1")
+# Versão corrigida pela revisão R3 (training.label_corrections); a original nunca muda
+DEV_LABELS_R3 = ("rotulos_grupos_r3.csv",
+                 "c5fda76dc5512c39f46cfffa2731f85fcdc887a744608866834672a11306ff54")
+LABEL_VERSIONS = {"v1": DEV_LABELS, "r3": DEV_LABELS_R3}
 
 
 def attach_paths(photos: list[GroupPhoto], manifest: list[dict],

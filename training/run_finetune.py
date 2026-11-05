@@ -19,7 +19,8 @@ import numpy as np
 
 from meter_reader.config import get_work_dir
 from training.finetune import CANDIDATES, CONFIGS, PhotoDataset, train_one
-from training.group_dataset import DEV_LABELS, GroupPhoto, fold_indices, internal_split, load_group_photos
+from training.group_dataset import  (LABEL_VERSIONS, GroupPhoto, check_group_sizes, fold_indices,
+                                    internal_split, load_group_photos)
 from training.group_labels import TRAINING_GROUP_CLASS
 from training.linear_probe import WEIGHTINGS, class_weights
 from training.triage_eval import OOF_FOLDER, save_oof
@@ -27,9 +28,10 @@ from training.triage_eval import OOF_FOLDER, save_oof
 SEEDS = (0, 1, 2)
 
 
-def run_name(candidate: str, weighting: str) -> str:
-    """Ex.: C2 e W-b -> c2_wb_fino (mesmo padrão dos nomes do C0)."""
-    return f"{candidate.lower()}_{weighting.replace('-', '').lower()}_fino"
+def run_name(candidate: str, weighting: str, version: str = "v1") -> str:
+    """Ex.: C2, W-b -> c2_wb_fino; com os rótulos R3 -> c2_wb_fino_r3."""
+    base = f"{candidate.lower()}_{weighting.replace('-', '').lower()}_fino"
+    return base if version == "v1" else f"{base}_{version}"
 
 
 def output_weights(photos: list[GroupPhoto], train: np.ndarray) -> np.ndarray:
@@ -47,13 +49,14 @@ def eval_order(photos: list[GroupPhoto]) -> np.ndarray:
 def part_path(work_dir: Path, name: str, lot: str, seed: int) -> Path:
     return work_dir / OOF_FOLDER / "partes" / name / f"{lot}_s{seed}.npz"
 
-
-def run(candidate: str, weighting: str, device: str = "cuda") -> Path:
-    if candidate not in CANDIDATES or weighting not in WEIGHTINGS:
-        raise SystemExit("Uso: python -m training.run_finetune {C2|C3} {W-b|W-d}")
+def run(candidate: str, weighting: str, version: str = "v1", device: str = "cuda") -> Path:
+    if candidate not in CANDIDATES or weighting not in WEIGHTINGS or version not in LABEL_VERSIONS:
+        raise SystemExit("Uso: python -m training.run_finetune {C2|C3} {W-b|W-d} [v1|r3]")
     work_dir = get_work_dir()
-    photos = load_group_photos()
-    name = run_name(candidate, weighting)
+    labels = LABEL_VERSIONS[version]
+    photos = load_group_photos(labels)  # confere o SHA-256 da versão escolhida
+    check_group_sizes(photos)           # a correção não pode esvaziar um grupo (mínimo 30)
+    name = run_name(candidate, weighting, version)
     to_input = CANDIDATES[candidate][1]
     lots = sorted({p.lot for p in photos})
 
@@ -90,13 +93,13 @@ def run(candidate: str, weighting: str, device: str = "cuda") -> Path:
             raise ValueError("Partes fora da ordem de avaliação.")
         per_seed.append(np.concatenate([p["logits"] for p in parts]))
         epochs.update({f"{lot}_s{seed}": int(p["best_epoch"]) for lot, p in zip(lots, parts)})
-    config = {"candidato": candidate, "ponderacao": weighting, "rotulo": "fino",
+    config = {"candidato": candidate, "ponderacao": weighting, "rotulo": "fino", "versao_rotulos": version,
               "treino": asdict(CONFIGS[candidate]), "sementes": list(SEEDS),
               "epocas_escolhidas": epochs}
     return save_oof(work_dir, name, codes, [photos[i].lot for i in order],
-                    np.stack(per_seed), config, DEV_LABELS[1])
+                    np.stack(per_seed), config, labels[1])
 
 
 if __name__ == "__main__":  # obrigatório no Windows: os processos auxiliares reimportam o módulo
-    run(*sys.argv[1:3])
+    run(*sys.argv[1:4])
     print("Concluído.")

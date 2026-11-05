@@ -20,9 +20,10 @@ def photos():
     return out
 
 
-def test_run_name_follows_c0_pattern():
+def test_run_name_follows_c0_pattern_and_version():
     assert rf.run_name("C2", "W-b") == "c2_wb_fino"
     assert rf.run_name("C3", "W-d") == "c3_wd_fino"
+    assert rf.run_name("C2", "W-b", "r3") == "c2_wb_fino_r3"
 
 
 def test_output_weights_map_class_weight_to_each_group():
