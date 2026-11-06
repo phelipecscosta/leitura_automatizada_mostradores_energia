@@ -41,3 +41,10 @@ def test_eval_order_is_paired_only_lot_by_lot():
     assert all(ph[i].paired for i in order)
     assert [ph[i].lot for i in order] == sorted(ph[i].lot for i in order)
     assert len(order) == sum(p.paired for p in ph)
+
+def test_c4_name_and_save_part_roundtrip(tmp_path):
+    assert rf.run_name("C4", "W-b", "r3") == "c4_wb_fino_r3"
+    path = rf.part_path(tmp_path, "c4_wb_fino_r3_professor", "2026-05-20", 0)
+    rf.save_part(path, ["F-00000000000a"], np.zeros((1, 12)), 3, [0.5, 0.4])
+    data = np.load(path)
+    assert list(data["codes"]) == ["F-00000000000a"] and int(data["best_epoch"]) == 3
