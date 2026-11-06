@@ -187,20 +187,11 @@ def predict(model, loader: DataLoader, device: str) -> np.ndarray:
             chunks.append(model(x.to(device)).float().cpu().numpy())
     return np.concatenate(chunks)
 
-
-def train_one(candidate: str, train_set: PhotoDataset, internal_set: PhotoDataset,
-              internal_class: np.ndarray, held_set: PhotoDataset, run_seed: int,
-              output_weight: np.ndarray | None = None, device: str = "cuda",
-              config: TrainConfig | None = None, pretrained: bool = True, log=print,
-              teacher: nn.Module | None = None, return_model: bool = False):
-
-    """Treina, escolhe a época pela divisão interna e prediz o lote avaliado.
-
-    `output_weight`: peso de cada saída (W-d) ou None (W-b). `internal_class`:
-    classe do produto das fotos da divisão interna. Devolve
-    (logits do lote avaliado, melhor época, histórico de perdas).
-    """
-    cfg = config or CONFIGS[candidate]
+def _setup(candidate: str, cfg: TrainConfig, n_train: int, run_seed: int,
+           output_weight: np.ndarray | None, device: str, pretrained: bool,
+           teacher: nn.Module | None) -> dict:
+    """Modelo, otimizador, cronograma e perda de uma execução (comum ao treino por
+    dobras e ao treino final). O cronograma cobre sempre cfg.max_epochs épocas."""
     torch.manual_seed(run_seed)
     model, _ = build(candidate, 12, pretrained)
     model.to(device)
@@ -211,20 +202,64 @@ def train_one(candidate: str, train_set: PhotoDataset, internal_set: PhotoDatase
               [{"params": model.backbone.parameters(), "lr": cfg.lr},
                {"params": model.head.parameters(), "lr": cfg.head_lr}])
     optimizer = torch.optim.AdamW(groups, weight_decay=cfg.weight_decay)
-    accumulation = cfg.batch // cfg.micro_batch
-    steps_per_epoch = math.ceil(len(train_set) / cfg.batch)
+    steps_per_epoch = math.ceil(n_train / cfg.batch)
     total, warmup = cfg.max_epochs * steps_per_epoch, cfg.warmup_epochs * steps_per_epoch
     scheduler = torch.optim.lr_scheduler.LambdaLR(
         optimizer, lambda s: lr_factor(s, warmup, total))
 
     weight = None if output_weight is None else torch.as_tensor(output_weight, dtype=torch.float32)
-    criterion = nn.CrossEntropyLoss(weight=None if weight is None else weight.to(device))
-    correction = 0.0 if output_weight is None else np.log(output_weight)
     use_amp = cfg.amp and device.startswith("cuda")
-    scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
-    # persistent_workers: os processos auxiliares sobrevivem entre as épocas (no Windows,
-    # criá-los custa alguns segundos). A vista de cada foto depende só da semente e da
-    # época (epoch_seed), então o paralelismo não muda nenhuma vista.
+    return {
+        "model": model, "optimizer": optimizer, "scheduler": scheduler,
+        "criterion": nn.CrossEntropyLoss(weight=None if weight is None else weight.to(device)),
+        "correction": 0.0 if output_weight is None else np.log(output_weight),
+        "use_amp": use_amp, "scaler": torch.amp.GradScaler("cuda", enabled=use_amp),
+        "accumulation": cfg.batch // cfg.micro_batch, "teacher": teacher,
+    }
+
+
+def _train_epoch(run: dict, loader: DataLoader, train_set: PhotoDataset, epoch: int,
+                 device: str) -> None:
+    """Uma época de treino, com AMP, acumulação e, no C4, destilação."""
+    model, optimizer, scaler = run["model"], run["optimizer"], run["scaler"]
+    accumulation, teacher = run["accumulation"], run["teacher"]
+    train_set.set_epoch(epoch)
+    model.train()
+    optimizer.zero_grad(set_to_none=True)
+    for i, (x, y) in enumerate(loader, start=1):
+        y = y.to(device)
+        with torch.autocast(device_type="cuda", dtype=torch.float16, enabled=run["use_amp"]):
+            if teacher is None:
+                loss = run["criterion"](model(x.to(device)), y)
+            else:  # C4: a mesma vista em duas entradas (aluno e professor)
+                x_student, x_teacher = x
+                with torch.no_grad():
+                    t_logits = teacher(x_teacher.to(device))
+                loss = distill_loss(model(x_student.to(device)), t_logits, y, run["criterion"])
+            loss = loss / accumulation
+        scaler.scale(loss).backward()
+        if i % accumulation == 0 or i == len(loader):
+            scaler.step(optimizer)
+            scaler.update()
+            optimizer.zero_grad(set_to_none=True)
+            run["scheduler"].step()
+
+
+def train_one(candidate: str, train_set: PhotoDataset, internal_set: PhotoDataset,
+              internal_class: np.ndarray, held_set: PhotoDataset, run_seed: int,
+              output_weight: np.ndarray | None = None, device: str = "cuda",
+              config: TrainConfig | None = None, pretrained: bool = True, log=print,
+              teacher: nn.Module | None = None, return_model: bool = False):
+    """Treina, escolhe a época pela divisão interna e prediz o lote avaliado.
+
+    `output_weight`: peso de cada saída (W-d) ou None (W-b). `internal_class`:
+    classe do produto das fotos da divisão interna. Devolve
+    (logits do lote avaliado, melhor época, histórico de perdas).
+    """
+    cfg = config or CONFIGS[candidate]
+    run = _setup(candidate, cfg, len(train_set), run_seed, output_weight, device,
+                 pretrained, teacher)
+    model = run["model"]
     # Os processos auxiliares sobrevivem entre as épocas. A vista de cada foto depende
     # só da semente e da época (epoch_seed), então o paralelismo não muda nenhuma vista.
     loader = make_loader(train_set, cfg, device, shuffle=True,
@@ -235,40 +270,43 @@ def train_one(candidate: str, train_set: PhotoDataset, internal_set: PhotoDatase
     history = []
     for epoch in range(1, cfg.max_epochs + 1):
         start = time.perf_counter()
-        train_set.set_epoch(epoch)
-        model.train()
-        optimizer.zero_grad(set_to_none=True)
-        for i, (x, y) in enumerate(loader, start=1):
-            y = y.to(device)
-            with torch.autocast(device_type="cuda", dtype=torch.float16, enabled=use_amp):
-                if teacher is None:
-                    loss = criterion(model(x.to(device)), y)
-                else:  # C4: a mesma vista em duas entradas (aluno e professor)
-                    x_student, x_teacher = x
-                    with torch.no_grad():
-                        t_logits = teacher(x_teacher.to(device))
-                    loss = distill_loss(model(x_student.to(device)), t_logits, y, criterion)
-                loss = loss / accumulation
-            scaler.scale(loss).backward()
-            if i % accumulation == 0 or i == len(loader):
-                scaler.step(optimizer)
-                scaler.update()
-                optimizer.zero_grad(set_to_none=True)
-                scheduler.step()
-
-        internal = predict(model, internal_loader, device) - correction
+        _train_epoch(run, loader, train_set, epoch, device)
+        internal = predict(model, internal_loader, device) - run["correction"]
         nll = class_nll(internal, internal_class)
         history.append(nll)
         if nll < best[0]:
             best = (nll, epoch, {k: v.detach().cpu().clone() for k, v in model.state_dict().items()})
         log(f"época {epoch}: perda interna {nll:.4f} ({(time.perf_counter() - start) / 60:.1f} min)")
 
-     # Encerra os processos do treino e da divisão interna antes de criar os da predição
+    # Encerra os processos do treino e da divisão interna antes de criar os da predição
     # final: no Windows, cada processo reserva 1 a 2 GB ao carregar o CUDA, e 18 processos
     # simultâneos esgotaram a memória virtual (WinError 1455, medido na primeira execução)
     del loader, internal_loader
     gc.collect()
     model.load_state_dict(best[2])
-    held = predict(model, make_loader(held_set, cfg, device), device) - correction
+    held = predict(model, make_loader(held_set, cfg, device), device) - run["correction"]
     # return_model: devolve a rede já com os pesos da melhor época (o professor do C4)
     return (held, best[1], history, model) if return_model else (held, best[1], history)
+
+
+def train_fixed(candidate: str, train_set: PhotoDataset, stop_epoch: int, run_seed: int,
+                device: str = "cuda", config: TrainConfig | None = None,
+                pretrained: bool = True, log=print, teacher: nn.Module | None = None):
+    """Modelo final (revisão R5): cronograma completo, parada fixa, sem divisão interna.
+
+    O cosseno é calculado para cfg.max_epochs épocas, como na execução R3, e o
+    treino para ao fim da época `stop_epoch`. Sempre W-b. Devolve a rede.
+    """
+    cfg = config or CONFIGS[candidate]
+    if not 1 <= stop_epoch <= cfg.max_epochs:
+        raise ValueError("A época de parada precisa estar entre 1 e o fim do cronograma.")
+    run = _setup(candidate, cfg, len(train_set), run_seed, None, device, pretrained, teacher)
+    loader = make_loader(train_set, cfg, device, shuffle=True,
+                         generator=torch.Generator().manual_seed(run_seed))
+    for epoch in range(1, stop_epoch + 1):
+        start = time.perf_counter()
+        _train_epoch(run, loader, train_set, epoch, device)
+        log(f"época {epoch} de {stop_epoch} ({(time.perf_counter() - start) / 60:.1f} min)")
+    del loader
+    gc.collect()  # encerra os processos do treino (E62)
+    return run["model"].eval()

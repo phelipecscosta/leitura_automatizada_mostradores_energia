@@ -113,3 +113,40 @@ def test_train_one_with_teacher_returns_model(files):
         "C2", train, evaluation, np.array([0, 1, 3, 4]), evaluation, 0, device="cpu",
         config=TINY, pretrained=False, log=lambda _: None, teacher=teacher, return_model=True)
     assert held.shape == (4, 12) and isinstance(model, torch.nn.Module)
+
+
+
+from training.finetune import train_fixed  # noqa: E402
+
+
+def fixed_tiny(files, stop_epoch, seed=0):
+    paths, codes = files
+    data = ft.PhotoDataset(paths, codes, [0, 5, 9, 11], to_tensor, True, run_seed=seed)
+    return train_fixed("C2", data, stop_epoch, seed, device="cpu", config=TINY,
+                       pretrained=False, log=lambda _: None)
+
+
+def test_train_fixed_matches_train_one_at_the_same_epoch(files):
+    # Até a época de parada, o treino final segue o mesmo caminho do treino por dobras:
+    # mesma semente, mesmo cronograma (calculado para max_epochs) e mesmas vistas.
+    # A rede do train_one tem os pesos da melhor época; o train_fixed parado nela é igual.
+    paths, codes = files
+    make = lambda train: ft.PhotoDataset(paths, codes, [0, 5, 9, 11], to_tensor, train)
+    _, best_epoch, _, reference = train_one(
+        "C2", make(True), make(False), np.array([0, 1, 3, 4]), make(False), 0, device="cpu",
+        config=TINY, pretrained=False, log=lambda _: None, return_model=True)
+    model = fixed_tiny(files, best_epoch)
+    x = torch.stack([to_tensor(enhance(Image.open(p))) for p in paths])
+    with torch.no_grad():
+        assert torch.allclose(model(x), reference.eval()(x), atol=1e-5)
+
+
+def test_train_fixed_is_reproducible_and_rejects_bad_stop(files):
+    paths, _ = files
+    x = torch.stack([to_tensor(enhance(Image.open(p))) for p in paths[:2]])
+    first, second = fixed_tiny(files, 1), fixed_tiny(files, 1)
+    with torch.no_grad():
+        assert torch.allclose(first(x), second(x), atol=1e-5)
+    for bad in (0, TINY.max_epochs + 1):
+        with pytest.raises(ValueError):
+            fixed_tiny(files, bad)
