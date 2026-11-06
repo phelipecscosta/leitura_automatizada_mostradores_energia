@@ -80,3 +80,36 @@ def test_wd_correction_is_applied(files):
     weight[0] = 4.0  # peso maior na saída 0
     logits, _, _ = run_tiny(files, weight)
     assert np.isfinite(logits).all() and logits.shape == (4, 12)
+
+from training.finetune import build, distill_input, distill_loss  # noqa: E402
+
+
+def test_distill_loss_reduces_to_cross_entropy_parts():
+    criterion = torch.nn.CrossEntropyLoss()
+    logits = torch.randn(6, 12)
+    y = torch.randint(0, 12, (6,))
+    ce = criterion(logits, y)
+    # Professor igual ao aluno: KL = 0, sobra metade da entropia cruzada
+    assert torch.isclose(distill_loss(logits, logits, y, criterion), 0.5 * ce)
+    assert torch.isclose(distill_loss(logits, logits * 3, y, criterion, alpha=0.0), ce)
+    assert distill_loss(logits, -logits, y, criterion) > 0.5 * ce  # discordância custa
+
+
+def test_distill_input_gives_both_resolutions(files):
+    paths, codes = files
+    data = ft.PhotoDataset(paths, codes, [0, 1, 2, 3], distill_input, train=True)
+    (x_student, x_teacher), _ = data[0]
+    assert x_student.shape == (3, 480, 360) and x_teacher.shape == (3, 294, 224)
+
+
+def test_train_one_with_teacher_returns_model(files):
+    paths, codes = files
+    targets = [0, 5, 9, 11]
+    torch.manual_seed(0)
+    teacher, _ = build("C3", 12, pretrained=False)
+    train = ft.PhotoDataset(paths, codes, targets, distill_input, True)
+    evaluation = ft.PhotoDataset(paths, codes, targets, to_tensor, False)
+    held, best_epoch, history, model = train_one(
+        "C2", train, evaluation, np.array([0, 1, 3, 4]), evaluation, 0, device="cpu",
+        config=TINY, pretrained=False, log=lambda _: None, teacher=teacher, return_model=True)
+    assert held.shape == (4, 12) and isinstance(model, torch.nn.Module)

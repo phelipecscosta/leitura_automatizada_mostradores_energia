@@ -8,6 +8,7 @@ Cada candidato é uma espinha pré-treinada com uma camada linear de 12 saídas
 from __future__ import annotations
 
 import zlib
+import torch.nn.functional as F
 
 import torch
 from PIL import Image
@@ -85,6 +86,28 @@ def build(candidate: str, n_outputs: int, pretrained: bool = True):
     """(modelo, função de entrada) do candidato."""
     model_class, to_input = CANDIDATES[candidate]
     return model_class(n_outputs, pretrained), to_input
+
+DISTILL_T = 4.0      # temperatura da destilação (protocolo, 1.3)
+DISTILL_ALPHA = 0.5  # peso da parte de destilação
+
+
+def distill_input(view):
+    """C4: a mesma vista para o aluno (C2, nativa) e para o professor (C3, 224 px).
+
+    Função de módulo, e não lambda: os processos auxiliares do Windows precisam
+    reimportá-la pelo nome.
+    """
+    return to_tensor(view), model_input(view)
+
+
+def distill_loss(student_logits, teacher_logits, targets, criterion,
+                 temperature: float = DISTILL_T, alpha: float = DISTILL_ALPHA):
+    """(1 − α) · CE + α · T² · KL(professor ‖ aluno); com α = 0,5, é a perda do protocolo."""
+    ce = criterion(student_logits, targets)
+    log_s = F.log_softmax(student_logits.float() / temperature, dim=1)
+    log_t = F.log_softmax(teacher_logits.float() / temperature, dim=1)
+    kl = F.kl_div(log_s, log_t, log_target=True, reduction="batchmean")
+    return (1 - alpha) * ce + alpha * temperature ** 2 * kl
 
 # ---------------------------------------------------------------------
 # Treino de uma dobra e uma semente (protocolo, 1.2 a 1.4)
@@ -168,7 +191,9 @@ def predict(model, loader: DataLoader, device: str) -> np.ndarray:
 def train_one(candidate: str, train_set: PhotoDataset, internal_set: PhotoDataset,
               internal_class: np.ndarray, held_set: PhotoDataset, run_seed: int,
               output_weight: np.ndarray | None = None, device: str = "cuda",
-              config: TrainConfig | None = None, pretrained: bool = True, log=print):
+              config: TrainConfig | None = None, pretrained: bool = True, log=print,
+              teacher: nn.Module | None = None, return_model: bool = False):
+
     """Treina, escolhe a época pela divisão interna e prediz o lote avaliado.
 
     `output_weight`: peso de cada saída (W-d) ou None (W-b). `internal_class`:
@@ -179,6 +204,8 @@ def train_one(candidate: str, train_set: PhotoDataset, internal_set: PhotoDatase
     torch.manual_seed(run_seed)
     model, _ = build(candidate, 12, pretrained)
     model.to(device)
+    if teacher is not None:  # C4: o professor só prediz; nunca é treinado
+        teacher.to(device).eval().requires_grad_(False)
 
     groups = ([{"params": model.parameters(), "lr": cfg.lr}] if cfg.head_lr is None else
               [{"params": model.backbone.parameters(), "lr": cfg.lr},
@@ -212,8 +239,16 @@ def train_one(candidate: str, train_set: PhotoDataset, internal_set: PhotoDatase
         model.train()
         optimizer.zero_grad(set_to_none=True)
         for i, (x, y) in enumerate(loader, start=1):
+            y = y.to(device)
             with torch.autocast(device_type="cuda", dtype=torch.float16, enabled=use_amp):
-                loss = criterion(model(x.to(device)), y.to(device)) / accumulation
+                if teacher is None:
+                    loss = criterion(model(x.to(device)), y)
+                else:  # C4: a mesma vista em duas entradas (aluno e professor)
+                    x_student, x_teacher = x
+                    with torch.no_grad():
+                        t_logits = teacher(x_teacher.to(device))
+                    loss = distill_loss(model(x_student.to(device)), t_logits, y, criterion)
+                loss = loss / accumulation
             scaler.scale(loss).backward()
             if i % accumulation == 0 or i == len(loader):
                 scaler.step(optimizer)
@@ -235,4 +270,5 @@ def train_one(candidate: str, train_set: PhotoDataset, internal_set: PhotoDatase
     gc.collect()
     model.load_state_dict(best[2])
     held = predict(model, make_loader(held_set, cfg, device), device) - correction
-    return held, best[1], history
+    # return_model: devolve a rede já com os pesos da melhor época (o professor do C4)
+    return (held, best[1], history, model) if return_model else (held, best[1], history)
