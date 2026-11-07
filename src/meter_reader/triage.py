@@ -9,6 +9,10 @@ soma das três classes rejeitáveis.
 
 from __future__ import annotations
 
+import hashlib
+from dataclasses import dataclass, field
+from pathlib import Path
+
 import torch
 from torch import nn
 from torchvision.models import MobileNet_V3_Large_Weights, mobilenet_v3_large
@@ -71,3 +75,44 @@ def rejection_destination(probs: torch.Tensor) -> list[str]:
     """Classe de destino de cada foto rejeitada: a maior das três rejeitáveis."""
     best = probs[:, _REJECTABLE].argmax(dim=1)
     return [REJECTABLE_CLASSES[i] for i in best.tolist()]
+
+
+
+# ---------------------------------------------------------------------
+# Artefato da triagem: as 3 redes, a temperatura e o limiar num arquivo (E32)
+# ---------------------------------------------------------------------
+
+ARTIFACT_FORMAT = 1
+
+
+class TriageArtifactError(ValueError):
+    """Artefato da triagem inválido, alterado ou incompatível com este produto."""
+
+
+@dataclass(frozen=True)
+class TriageModel:
+    """Modelo carregado: o conjunto calibrado e o limiar do escore de rejeição."""
+
+    ensemble: TriageEnsemble
+    threshold: float
+    info: dict = field(default_factory=dict)  # procedência gravada no artefato
+
+
+def load_triage(path: Path, expected_sha256: str | None = None) -> TriageModel:
+    """Carrega o artefato do C4 em CPU, conferindo o SHA-256 (se informado) e o contrato."""
+    path = Path(path)
+    if expected_sha256 is not None:
+        if hashlib.sha256(path.read_bytes()).hexdigest() != expected_sha256:
+            raise TriageArtifactError("O artefato da triagem não corresponde ao SHA-256 esperado.")
+    data = torch.load(path, map_location="cpu", weights_only=True)
+    if data.get("formato") != ARTIFACT_FORMAT:
+        raise TriageArtifactError("Formato de artefato da triagem desconhecido.")
+    if tuple(data["grupos"]) != TRIAGE_GROUPS:
+        raise TriageArtifactError("As saídas do artefato não seguem a ordem TRIAGE_GROUPS.")
+    nets = []
+    for state in data["redes"]:
+        net = MobileNetTriageNet()
+        net.load_state_dict(state)
+        nets.append(net)
+    ensemble = TriageEnsemble(nets, data["temperatura"]).eval()
+    return TriageModel(ensemble, float(data["limiar"]), dict(data["info"]))
