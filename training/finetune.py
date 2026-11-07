@@ -14,9 +14,9 @@ import torch
 from PIL import Image
 from torch import nn
 from torch.utils.data import Dataset
-from torchvision.models import MobileNet_V3_Large_Weights, mobilenet_v3_large
 
 from meter_reader.preprocess import enhance, to_tensor
+from meter_reader.triage import MobileNetTriageNet
 from training.dino_features import load_dinov2, model_input
 from training.triage_augment import augment
 
@@ -48,18 +48,9 @@ class PhotoDataset(Dataset):
         return self.to_input(view), self.targets[i]
 
 
-class MobileNetClassifier(nn.Module):
-    """C2: MobileNetV3-Large inteira e uma camada linear (a mesma cabeça do C0)."""
-
-    def __init__(self, n_outputs: int, pretrained: bool = True) -> None:
-        super().__init__()
-        weights = MobileNet_V3_Large_Weights.IMAGENET1K_V2 if pretrained else None
-        self.backbone = mobilenet_v3_large(weights=weights).features
-        self.pool = nn.AdaptiveAvgPool2d(1)
-        self.head = nn.Linear(960, n_outputs)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.head(self.pool(self.backbone(x)).flatten(1))
+# C2 e C4: a rede é a do produto (revisão R6), para que treino e inferência usem a
+# mesma definição. Os nomes dos parâmetros (backbone, head) são os da ET4f.
+MobileNetClassifier = MobileNetTriageNet
 
 
 class DinoClassifier(nn.Module):
