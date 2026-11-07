@@ -69,6 +69,9 @@ def save_artifact(path: Path, ensemble: TriageEnsemble, threshold: float, info: 
     if path.exists():
         raise FileExistsError("Artefato já gravado.")
     path.parent.mkdir(parents=True, exist_ok=True)
+    # Ida e volta pelo JSON: só tipos simples no artefato (um escalar do NumPy, como as
+    # temperaturas por lote, impede o carregamento seguro com weights_only=True)
+    info = json.loads(json.dumps(info))
     data = {"formato": ARTIFACT_FORMAT, "grupos": list(TRIAGE_GROUPS),
             "temperatura": float(ensemble.temperature), "limiar": float(threshold),
             "redes": [{k: v.detach().cpu() for k, v in net.state_dict().items()}
@@ -110,4 +113,3 @@ def run() -> None:
 if __name__ == "__main__":
     run()
     print("Concluído.")
-    

@@ -91,3 +91,13 @@ def test_calibration_returns_a_threshold_that_meets_the_target():
     out = calibration(logits, labels, lots)
     assert out["perda_limite_superior"] <= 0.005 and 0 < out["cobertura"] <= 1
     assert out["temperatura"] > 0 and set(out["temperaturas_por_lote"]) == {"a", "b", "c"}
+
+
+
+
+def test_artifact_with_numpy_values_in_info_loads_with_weights_only(tmp_path):
+    # As temperaturas por lote saem da calibração como np.float64
+    path = tmp_path / "triagem_c4.pt"
+    save_artifact(path, tiny_ensemble(), 0.5, {"temperaturas_por_lote": {"a": np.float64(1.2)}})
+    model = tr.load_triage(path)
+    assert model.info["temperaturas_por_lote"]["a"] == pytest.approx(1.2)
