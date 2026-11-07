@@ -190,3 +190,12 @@ def test_triage_rejections_match_spec() -> None:
     for product_class, (status, reason) in expected.items():
         rejection = TRIAGE_REJECTIONS[product_class]
         assert (rejection.status, rejection.reason) == (status, reason)
+
+
+
+def test_triage_groups_map_to_every_product_class_in_order():
+    from meter_reader.contracts import PRODUCT_CLASSES, TRIAGE_GROUP_CLASS, TRIAGE_GROUPS
+    assert len(TRIAGE_GROUPS) == len(TRIAGE_GROUP_CLASS) == 12
+    assert len(set(TRIAGE_GROUPS)) == 12
+    assert list(TRIAGE_GROUP_CLASS) == sorted(TRIAGE_GROUP_CLASS)  # agrupadas por classe
+    assert set(TRIAGE_GROUP_CLASS) == set(range(len(PRODUCT_CLASSES)))

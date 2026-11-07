@@ -61,6 +61,23 @@ class Reason(StrEnum):
 PRODUCT_CLASSES = ("digital", "ciclometrico", "indeterminado", "multiplos", "outros")
 
 
+# Saídas do modelo da triagem: os 12 grupos de treino, na ordem fixa das saídas
+# (protocolo da triagem, seção 1.1, fusão U-b; revisão R6). Mudar esta ordem
+# invalida qualquer modelo treinado. O pacote training confere, ao ser
+# importado, que ela é a mesma que ele deriva dos grupos rotulados.
+TRIAGE_GROUPS = (
+    "dig1_quadrado_branco", "dig2_redondo_branco", "dig3_vidro_redondo", "dig4_verde_arduino",
+    "cic_disco", "cic_duas_leituras", "cic_uma_leitura",
+    "indeterminado",
+    "multiplos",
+    "out_acesso", "out_sem_acesso", "out_sem_contexto",
+)
+
+# Classe do produto (índice em PRODUCT_CLASSES) de cada saída: o mapa que soma
+# as probabilidades dos grupos por classe
+TRIAGE_GROUP_CLASS = (0, 0, 0, 0, 1, 1, 1, 2, 3, 4, 4, 4)
+
+
 def first_reason(reasons: Iterable[Reason]) -> Reason:
     """Retorna o motivo que prevalece: o primeiro na ordem do pipeline."""
     order = list(Reason)

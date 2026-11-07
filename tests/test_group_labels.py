@@ -74,3 +74,13 @@ def test_training_group_applies_merge_and_refuses_unknown():
     assert training_group("multiplos") == "multiplos"
     with pytest.raises(ValueError):
         training_group("dig6_inexistente")
+
+
+
+def test_training_groups_come_from_the_product_and_match_the_derivation():
+    from meter_reader import contracts
+    from training import group_labels as gl
+    assert gl.TRAINING_GROUPS is contracts.TRIAGE_GROUPS
+    assert gl.TRAINING_GROUP_CLASS is contracts.TRIAGE_GROUP_CLASS
+    assert all(PRODUCT_CLASSES[c] == gl.product_class(g)
+               for g, c in zip(gl.TRAINING_GROUPS, gl.TRAINING_GROUP_CLASS))

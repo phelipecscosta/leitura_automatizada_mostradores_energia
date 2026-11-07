@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import unicodedata
 
-from meter_reader.contracts import PRODUCT_CLASSES
+from meter_reader.contracts import PRODUCT_CLASSES, TRIAGE_GROUP_CLASS, TRIAGE_GROUPS
 
 # Grupo canônico -> (nome por extenso, classe do produto)
 GROUPS = {
@@ -115,15 +115,20 @@ MERGES = {
 }
 
 # Ordem fixa das saídas do modelo: pela classe do produto e, dentro dela, pelo
-# código. Mudar esta ordem invalida qualquer modelo treinado.
-TRAINING_GROUPS = tuple(sorted(
+# código. A fonte é o produto (revisão R6), que a usa na inferência; aqui ela é
+# derivada dos grupos e conferida. Mudar esta ordem invalida qualquer modelo treinado.
+_DERIVED_GROUPS = tuple(sorted(
     (g for g in GROUPS if g not in MERGES),
     key=lambda g: (PRODUCT_CLASSES.index(product_class(g)), g),
 ))
+_DERIVED_CLASS = tuple(PRODUCT_CLASSES.index(product_class(g)) for g in _DERIVED_GROUPS)
+if (_DERIVED_GROUPS, _DERIVED_CLASS) != (TRIAGE_GROUPS, TRIAGE_GROUP_CLASS):
+    raise RuntimeError("Os grupos de treino divergem das saídas da triagem do produto.")
 
+TRAINING_GROUPS = TRIAGE_GROUPS
 # Classe do produto (índice em PRODUCT_CLASSES) de cada saída do modelo:
 # é o mapa usado para somar as probabilidades dos grupos por classe
-TRAINING_GROUP_CLASS = tuple(PRODUCT_CLASSES.index(product_class(g)) for g in TRAINING_GROUPS)
+TRAINING_GROUP_CLASS = TRIAGE_GROUP_CLASS
 
 
 def training_group(group: str) -> str:
