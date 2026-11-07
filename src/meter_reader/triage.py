@@ -17,7 +17,9 @@ import torch
 from torch import nn
 from torchvision.models import MobileNet_V3_Large_Weights, mobilenet_v3_large
 
-from meter_reader.contracts import PRODUCT_CLASSES, TRIAGE_GROUP_CLASS, TRIAGE_GROUPS
+from meter_reader.contracts import (PRODUCT_CLASSES, TRIAGE_GROUP_CLASS, TRIAGE_GROUPS,
+                                    TRIAGE_REJECTIONS, Rejection)
+from meter_reader.preprocess import preprocess
 
 REJECTABLE_CLASSES = ("indeterminado", "multiplos", "outros")
 _REJECTABLE = [PRODUCT_CLASSES.index(c) for c in REJECTABLE_CLASSES]
@@ -89,6 +91,20 @@ class TriageArtifactError(ValueError):
     """Artefato da triagem inválido, alterado ou incompatível com este produto."""
 
 
+METER_TYPES = ("digital", "ciclometrico")
+_METER_TYPES = [PRODUCT_CLASSES.index(c) for c in METER_TYPES]
+
+
+@dataclass(frozen=True)
+class TriageResult:
+    """Decisão da triagem para uma foto (spec 2.5, itens 5 a 8)."""
+
+    class_probs: tuple[float, ...]   # probabilidades calibradas, na ordem de PRODUCT_CLASSES
+    score: float                     # P(rejeitável)
+    rejection: Rejection | None      # par status e motivo; None: segue para o detector
+    meter_type: str | None           # se segue: o tipo mais provável (digital ou ciclométrico)
+
+
 @dataclass(frozen=True)
 class TriageModel:
     """Modelo carregado: o conjunto calibrado e o limiar do escore de rejeição."""
@@ -96,6 +112,27 @@ class TriageModel:
     ensemble: TriageEnsemble
     threshold: float
     info: dict = field(default_factory=dict)  # procedência gravada no artefato
+
+    def decide(self, group_logits: torch.Tensor) -> list[TriageResult]:
+        """Decisões a partir dos logits de grupo calibrados (n, 12)."""
+        probs = class_probs(group_logits)
+        scores = rejection_score(probs)
+        destinations = rejection_destination(probs)
+        types = probs[:, _METER_TYPES].argmax(dim=1).tolist()
+        results = []
+        for p, score, dest, t in zip(probs.tolist(), scores.tolist(), destinations, types):
+            rejected = score >= self.threshold
+            results.append(TriageResult(
+                class_probs=tuple(p), score=score,
+                rejection=TRIAGE_REJECTIONS[dest] if rejected else None,
+                meter_type=None if rejected else METER_TYPES[t]))
+        return results
+
+    def predict(self, path: Path) -> TriageResult:
+        """Uma foto em disco: realce fixo, resolução nativa, as 3 redes e a decisão."""
+        x = preprocess(Path(path)).unsqueeze(0)
+        with torch.no_grad():
+            return self.decide(self.ensemble(x))[0]
 
 
 def load_triage(path: Path, expected_sha256: str | None = None) -> TriageModel:

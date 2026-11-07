@@ -101,3 +101,41 @@ def test_artifact_with_numpy_values_in_info_loads_with_weights_only(tmp_path):
     save_artifact(path, tiny_ensemble(), 0.5, {"temperaturas_por_lote": {"a": np.float64(1.2)}})
     model = tr.load_triage(path)
     assert model.info["temperaturas_por_lote"]["a"] == pytest.approx(1.2)
+
+
+
+from PIL import Image  # noqa: E402
+
+from meter_reader.contracts import TRIAGE_REJECTIONS  # noqa: E402
+from meter_reader.preprocess import enhance, to_tensor  # noqa: E402
+from training.triage_eval import rejection_destination as eval_destination  # noqa: E402
+
+
+def test_decide_matches_the_evaluation_code_at_the_threshold():
+    rng = np.random.default_rng(1)
+    logits = rng.normal(scale=3.0, size=(200, len(TRIAGE_GROUPS)))
+    expected = np.exp(class_log_probs(logits))
+    threshold = float(np.median(eval_score(expected)))  # metade rejeitada
+    model = tr.TriageModel(tiny_ensemble(), threshold)
+    results = model.decide(torch.tensor(logits, dtype=torch.float32))
+    rejected = eval_score(expected) >= threshold
+    assert [r.rejection is not None for r in results] == list(rejected)
+    dest = eval_destination(expected)
+    for r, is_rej, d, p in zip(results, rejected, dest, expected):
+        if is_rej:
+            assert r.rejection == TRIAGE_REJECTIONS[PRODUCT_CLASSES[d]] and r.meter_type is None
+        else:
+            best = "digital" if p[0] >= p[1] else "ciclometrico"
+            assert r.rejection is None and r.meter_type == best
+
+
+def test_predict_reads_the_photo_with_the_training_preprocessing(tmp_path):
+    rng = np.random.default_rng(0)
+    path = tmp_path / "foto.jpg"
+    Image.fromarray(rng.integers(0, 255, (480, 360, 3), dtype=np.uint8)).save(path)
+    model = tr.TriageModel(tiny_ensemble(), 0.5)
+    with Image.open(path) as image:
+        x = to_tensor(enhance(image)).unsqueeze(0)  # entrada do PhotoDataset na avaliação
+    with torch.no_grad():
+        expected = model.decide(model.ensemble(x))[0]
+    assert model.predict(path) == expected
