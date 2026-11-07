@@ -14,16 +14,18 @@ import torch
 from torch.export import Dim
 
 INPUT_NAME = "imagem"
-OUTPUT_NAMES = ("logits_cena", "logit_ilegivel")
+OUTPUT_NAMES = ("logits_cena", "logit_ilegivel")      # triagem do Lab02
+TRIAGE5_OUTPUT_NAMES = ("logits_grupos",)               # triagem de cinco classes (T4g.4)
 OPSET = 18
 
 
-def export_onnx(model: torch.nn.Module, path: Path, example: torch.Tensor) -> Path:
+def export_onnx(model: torch.nn.Module, path: Path, example: torch.Tensor,
+                output_names: tuple[str, ...] = OUTPUT_NAMES) -> Path:
     """Exporta com lote, altura e largura variáveis (há fotos em pé e deitadas)."""
     model.eval()
     torch.onnx.export(
         model, (example,), str(path), dynamo=True,
-        input_names=[INPUT_NAME], output_names=list(OUTPUT_NAMES),
+        input_names=[INPUT_NAME], output_names=list(output_names),
         dynamic_shapes=({0: Dim.AUTO, 2: Dim.AUTO, 3: Dim.AUTO},),
         opset_version=OPSET, external_data=False, verbose=False,
     )
@@ -42,3 +44,9 @@ def run_onnx(session: ort.InferenceSession, x: np.ndarray) -> tuple[np.ndarray, 
     """(logits de cena, logit de ilegível) para um lote em float32."""
     scene, illegible = session.run(None, {INPUT_NAME: np.asarray(x, dtype=np.float32)})
     return scene, illegible
+
+
+
+def run_onnx_triage5(session: ort.InferenceSession, x: np.ndarray) -> np.ndarray:
+    """Logits de grupo calibrados (n, 12) do conjunto da triagem de cinco classes."""
+    return session.run(None, {INPUT_NAME: np.asarray(x, dtype=np.float32)})[0]
