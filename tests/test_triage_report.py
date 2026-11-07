@@ -43,7 +43,8 @@ def test_separation_counts_destination_swaps_and_two_readings():
     rejected = np.array([True, True, True, True, False])
     s = rp.separation(probs, rejected, labels, groups)
     assert s["destino_trocado"] == 1 and s["rejeitaveis_cobertos"] == 3
-    assert s["multiplos_rejeitados_como_multiplos"] == 1
+    assert s["multiplos_rejeitados_como_multiplos"] == 1 and s["multiplos_rejeitados"] == 2
+    assert s["multiplos_mais_provavel_multiplos"] == 1
     assert (s["duas_leituras_mais_provavel_multiplos"], s["duas_leituras_rejeitadas"]) == (1, 1)
 
 

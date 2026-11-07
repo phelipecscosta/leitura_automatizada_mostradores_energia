@@ -61,6 +61,11 @@ def separation(probs: np.ndarray, rejected: np.ndarray, labels: np.ndarray,
     return {
         "destino_trocado": int((dest[hit] != labels[hit]).sum()), "rejeitaveis_cobertos": int(hit.sum()),
         "multiplos": int(mult.sum()),
+        # Mais provável múltiplos: o critério da E65 ("identificados")
+        "multiplos_mais_provavel_multiplos": int((probs[mult].argmax(1) == MULTIPLOS).sum()),
+        # Rejeitados (qualquer destino): os que não passam para o detector (gatilho da E52)
+        "multiplos_rejeitados": int((rejected & mult).sum()),
+        # Rejeitados com destino múltiplos: os que vão para a pasta "Rejeitadas / Múltiplos"
         "multiplos_rejeitados_como_multiplos": int((rejected & mult & (dest == MULTIPLOS)).sum()),
         "duas_leituras": int(two.sum()),
         "duas_leituras_mais_provavel_multiplos": int((probs[two].argmax(1) == MULTIPLOS).sum()),
