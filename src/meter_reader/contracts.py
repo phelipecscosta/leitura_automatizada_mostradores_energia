@@ -22,7 +22,7 @@ from enum import StrEnum
 
 
 class Status(StrEnum):
-    """Status de uma imagem na planilha de controle (spec v12, 2.5, item 1.5)."""
+    """Status de uma imagem na planilha de controle (spec v14, 2.5, item 1.5)."""
 
     APPROVED = "Processada com sucesso"
     NEEDS_REVIEW = "Necessita de verificação"
@@ -35,7 +35,7 @@ class Status(StrEnum):
 
 
 class Reason(StrEnum):
-    """Motivo de rejeição ou verificação (spec v12, 2.5, item 1.6).
+    """Motivo de rejeição ou verificação (spec v14, 2.5, item 1.6).
 
     A ordem de declaração é a ordem do pipeline e decide qual motivo
     prevalece quando mais de um se aplica (spec 2.5, item 1.7). Não reordene.
@@ -200,3 +200,103 @@ class PairingResult:
     @property
     def rejection(self) -> Rejection | None:
         return None if self.row is not None else REJECTION_NOT_LISTED
+
+
+# ---------------------------------------------------------------------
+# Saída: linha da planilha de controle (spec v14, 2.5, item 1)
+# ---------------------------------------------------------------------
+
+# Motivos permitidos para cada status. Fecha o vocabulário em pares:
+# nenhum módulo consegue gravar um status com o motivo de outro.
+# "Tipo divergente entre triagem e detector" vai para verificação
+# (lado seguro; a spec não fixa o status desse motivo).
+STATUS_REASONS: dict[Status, frozenset[Reason]] = {
+    Status.APPROVED: frozenset(),
+    Status.NEEDS_REVIEW: frozenset({
+        Reason.TYPE_MISMATCH, Reason.LOW_CONFIDENCE, Reason.METER_NUMBER_MISMATCH,
+        Reason.READING_MISMATCH, Reason.WRONG_FUNCTION, Reason.HIGH_CRITICALITY,
+        Reason.OUT_OF_PARAMETERS,
+    }),
+    Status.REJECTED_OTHER: frozenset({Reason.NOT_A_METER}),
+    Status.REJECTED_LOW_QUALITY: frozenset({Reason.INDETERMINATE_TYPE, Reason.EXTRACTION_FAILURE}),
+    Status.REJECTED_MULTIPLE: frozenset({Reason.MULTIPLE_METERS}),
+    Status.REJECTED_CORRUPTED: frozenset({Reason.CORRUPTED}),
+    Status.REJECTED_NOT_LISTED: frozenset({Reason.NOT_IN_EXTRACTION}),
+    Status.NOT_PROCESSED: frozenset({Reason.NOT_IN_PARAMETERS}),
+}
+
+# Pasta de destino de cada status, relativa à pasta do lote (spec 2.3).
+# None: a imagem não é movimentada e fica na pasta de origem.
+DESTINATION_FOLDERS: dict[Status, tuple[str, ...] | None] = {
+    Status.APPROVED: ("Aprovadas",),
+    Status.NEEDS_REVIEW: ("Verificar",),
+    Status.REJECTED_OTHER: ("Rejeitadas", "Outros"),
+    Status.REJECTED_LOW_QUALITY: ("Rejeitadas", "Baixa qualidade"),
+    Status.REJECTED_MULTIPLE: ("Rejeitadas", "Múltiplos"),
+    Status.REJECTED_CORRUPTED: ("Rejeitadas", "Corrompidas"),
+    Status.REJECTED_NOT_LISTED: ("Rejeitadas", "Não listada"),
+    Status.NOT_PROCESSED: None,
+}
+
+# Status em que todos os campos extraídos ficam NAN (spec 2.5, itens 2.3,
+# 2.4, 6, 7, 9, 10.2 e 11.1)
+_EMPTY_FIELD_STATUSES = frozenset(STATUS_REASONS) - {Status.APPROVED, Status.NEEDS_REVIEW}
+
+FUNCTION_OK = "03"
+_WRONG_FUNCTION_RE = re.compile(r"^Função incorreta - \d+$")
+
+
+def wrong_function(code: str) -> str:
+    """Texto da coluna Funcao para uma função lida diferente de 03 (spec 2.5, item 13.3)."""
+    if not code.isdigit():
+        raise ValueError("O código da função precisa ter só dígitos.")
+    return f"Função incorreta - {code}"
+
+
+@dataclass(frozen=True)
+class ControlRow:
+    """Uma linha da planilha de controle. None representa NAN."""
+
+    photo_name: str  # chave da planilha
+    meter_number: str | None
+    function: str | None  # "03", "Função incorreta - XX" ou None
+    reading: int | None
+    status: Status
+    reason: Reason | None  # None só em "Processada com sucesso"
+
+    def __post_init__(self) -> None:
+        if not self.photo_name:
+            raise ValueError("A linha precisa do nome da foto.")
+        allowed = STATUS_REASONS[self.status]
+        if self.reason is None:
+            if allowed:
+                raise ValueError("Este status exige um motivo.")
+        elif self.reason not in allowed:
+            raise ValueError("Motivo incompatível com o status.")
+        if self.meter_number is not None and not _METER_PART_RE.fullmatch(self.meter_number):
+            raise ValueError("Número de medidor com caracteres inválidos.")
+        if self.function is not None and self.function != FUNCTION_OK \
+                and not _WRONG_FUNCTION_RE.fullmatch(self.function):
+            raise ValueError("Valor de função fora do vocabulário.")
+        if self.reading is not None and (isinstance(self.reading, bool)
+                                         or not isinstance(self.reading, int)
+                                         or self.reading < 0):
+            raise ValueError("A leitura precisa ser um inteiro não negativo.")
+        extracted = (self.meter_number, self.function, self.reading)
+        if self.status in _EMPTY_FIELD_STATUSES and any(v is not None for v in extracted):
+            raise ValueError("Neste status, os campos extraídos ficam vazios.")
+        if self.status is Status.APPROVED:
+            if self.meter_number is None or self.reading is None:
+                raise ValueError("Uma aprovação exige número do medidor e leitura.")
+            if self.function not in (None, FUNCTION_OK):
+                raise ValueError("Uma aprovação não pode ter função incorreta.")
+
+    @classmethod
+    def rejected(cls, photo_name: str, rejection: Rejection) -> ControlRow:
+        """Linha de uma rejeição (ou de "Não processada"), com os campos NAN."""
+        return cls(photo_name, None, None, None, rejection.status, rejection.reason)
+
+    @property
+    def destination(self) -> tuple[str, ...] | None:
+        """Pasta de destino relativa à pasta do lote; None: fica na origem."""
+        return DESTINATION_FOLDERS[self.status]

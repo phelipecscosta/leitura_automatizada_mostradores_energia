@@ -199,3 +199,83 @@ def test_triage_groups_map_to_every_product_class_in_order():
     assert len(set(TRIAGE_GROUPS)) == 12
     assert list(TRIAGE_GROUP_CLASS) == sorted(TRIAGE_GROUP_CLASS)  # agrupadas por classe
     assert set(TRIAGE_GROUP_CLASS) == set(range(len(PRODUCT_CLASSES)))
+
+
+# ---------------------------------------------------------------------
+# Linha da planilha de controle
+# ---------------------------------------------------------------------
+
+from meter_reader.contracts import (  # noqa: E402
+    DESTINATION_FOLDERS, REJECTION_CORRUPTED, STATUS_REASONS, TRIAGE_REJECTIONS,
+    ControlRow, wrong_function,
+)
+
+
+def test_every_status_and_reason_is_covered() -> None:
+    # Cada status tem motivos e destino definidos, e cada motivo pertence a um só status
+    assert set(STATUS_REASONS) == set(Status) == set(DESTINATION_FOLDERS)
+    owners = [s for s, reasons in STATUS_REASONS.items() for _ in reasons]
+    assert len(owners) == len(Reason)
+    assert set().union(*STATUS_REASONS.values()) == set(Reason)
+
+
+def test_only_not_processed_stays_in_origin() -> None:
+    assert [s for s, d in DESTINATION_FOLDERS.items() if d is None] == [Status.NOT_PROCESSED]
+
+
+def test_rejected_row_has_empty_fields_and_destination() -> None:
+    row = ControlRow.rejected("a.jpg", REJECTION_CORRUPTED)
+    assert (row.meter_number, row.function, row.reading) == (None, None, None)
+    assert row.destination == ("Rejeitadas", "Corrompidas")
+
+
+@pytest.mark.parametrize("rejection", list(TRIAGE_REJECTIONS.values()))
+def test_triage_rejections_build_valid_rows(rejection) -> None:
+    assert ControlRow.rejected("a.jpg", rejection).status is rejection.status
+
+
+def test_reason_must_match_status() -> None:
+    with pytest.raises(ValueError, match="incompatível"):
+        ControlRow("a.jpg", None, None, None, Status.REJECTED_OTHER, Reason.EXTRACTION_FAILURE)
+    with pytest.raises(ValueError, match="exige um motivo"):
+        ControlRow("a.jpg", None, None, None, Status.NEEDS_REVIEW, None)
+    with pytest.raises(ValueError, match="incompatível"):
+        ControlRow("a.jpg", "A1", "03", 10, Status.APPROVED, Reason.LOW_CONFIDENCE)
+
+
+def test_rejection_cannot_carry_extracted_fields() -> None:
+    with pytest.raises(ValueError, match="ficam vazios"):
+        ControlRow("a.jpg", "A1", None, None, Status.REJECTED_OTHER, Reason.NOT_A_METER)
+
+
+def test_approved_row_rules() -> None:
+    ok = ControlRow("a.jpg", "A1", "03", 12, Status.APPROVED, None)
+    assert ok.destination == ("Aprovadas",)
+    ControlRow("b.jpg", "A1", None, 12, Status.APPROVED, None)  # ciclométrico: função NAN
+    with pytest.raises(ValueError, match="exige número"):
+        ControlRow("c.jpg", None, "03", 12, Status.APPROVED, None)
+    with pytest.raises(ValueError, match="função incorreta"):
+        ControlRow("d.jpg", "A1", wrong_function("103"), 12, Status.APPROVED, None)
+
+
+def test_review_row_accepts_wrong_function_and_missing_fields() -> None:
+    ControlRow("a.jpg", "A1", wrong_function("103"), 12, Status.NEEDS_REVIEW, Reason.WRONG_FUNCTION)
+    row = ControlRow("b.jpg", None, None, None, Status.NEEDS_REVIEW, Reason.LOW_CONFIDENCE)
+    assert row.destination == ("Verificar",)
+
+
+@pytest.mark.parametrize("value", ["3", "Função incorreta - ", "Função incorreta - 1a", "03 "])
+def test_function_vocabulary_is_closed(value) -> None:
+    with pytest.raises(ValueError, match="vocabulário"):
+        ControlRow("a.jpg", "A1", value, 1, Status.NEEDS_REVIEW, Reason.WRONG_FUNCTION)
+
+
+@pytest.mark.parametrize("reading", [-1, 1.5, True])
+def test_reading_must_be_non_negative_int(reading) -> None:
+    with pytest.raises(ValueError, match="inteiro"):
+        ControlRow("a.jpg", "A1", "03", reading, Status.NEEDS_REVIEW, Reason.LOW_CONFIDENCE)
+
+
+def test_wrong_function_rejects_non_digits() -> None:
+    with pytest.raises(ValueError):
+        wrong_function("1O3")
