@@ -76,8 +76,10 @@ def format_feedback(summary: Summary, control_path: Path, updated: bool, paramet
                      "verificação; nenhuma é aprovada automaticamente.")
     if stale_by_folder:
         total = sum(stale_by_folder.values())
-        lines += ["", f"Atenção: {_number(total)} imagens deste processamento têm uma cópia "
-                      "antiga em outra pasta do lote. Nenhuma foi apagada:"]
+        subject = ("1 imagem deste processamento tem" if total == 1
+                   else f"{_number(total)} imagens deste processamento têm")
+        lines += ["", f"Atenção: {subject} uma cópia antiga em outra pasta do lote. "
+                      "Nenhuma foi apagada:"]
         lines += [f"  {folder}: {_number(n)}" for folder, n in sorted(stale_by_folder.items())]
         if stale_list:
             lines.append(f"Lista com as pastas e os nomes: {stale_list}, na pasta do lote.")

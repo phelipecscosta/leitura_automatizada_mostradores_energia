@@ -55,3 +55,14 @@ def test_empty_run_and_thousands() -> None:
     assert "0,0%" in format_feedback(Summary.from_rows([]), CONTROL, False, "desativada")
     many = [ControlRow.rejected(f"{i}.jpg", REJECTION_CORRUPTED) for i in range(1234)]
     assert "1.234" in format_feedback(Summary.from_rows(many), CONTROL, False, "desativada")
+
+
+
+
+def test_stale_warning_agrees_in_number() -> None:
+    one = format_feedback(Summary.from_rows(ROWS), CONTROL, False, "desativada",
+                          stale_by_folder={"Verificar": 1})
+    assert "Atenção: 1 imagem deste processamento tem uma cópia antiga" in one
+    two = format_feedback(Summary.from_rows(ROWS), CONTROL, False, "desativada",
+                          stale_by_folder={"Verificar": 2})
+    assert "Atenção: 2 imagens deste processamento têm uma cópia antiga" in two
