@@ -53,7 +53,7 @@ def _inside_git(path: Path) -> bool:
     return any((folder / ".git").exists() for folder in (path, *path.parents))
 
 
-def _inside_data_dir(path: Path) -> bool:
+def inside_data_dir(path: Path) -> bool:
     """Verdadeiro se o caminho estiver na pasta de dados (somente leitura), quando definida."""
     data_value = os.getenv(DATA_DIR_VAR)
     if not data_value:
@@ -81,7 +81,7 @@ def get_work_dir() -> Path:
     path = _read_dir(WORK_DIR_VAR)
     if _inside_git(path):
         raise ConfigError(f"{WORK_DIR_VAR} não pode ficar dentro de um repositório Git.")
-    if _inside_data_dir(path):
+    if inside_data_dir(path):
         raise ConfigError(
             f"{WORK_DIR_VAR} não pode ficar dentro da pasta de dados (somente leitura)."
         )
@@ -98,7 +98,7 @@ def get_output_dir() -> Path:
     path = _read_dir(OUTPUT_DIR_VAR)
     if _inside_git(path):
         raise ConfigError(f"{OUTPUT_DIR_VAR} não pode ficar dentro de um repositório Git.")
-    if _inside_data_dir(path):
+    if inside_data_dir(path):
         raise ConfigError(
             f"{OUTPUT_DIR_VAR} não pode ficar dentro da pasta de dados (somente leitura)."
         )

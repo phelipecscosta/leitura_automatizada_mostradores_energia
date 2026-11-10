@@ -44,6 +44,10 @@ training = [
     "timm>=1.0",           # DINOv2 com os pesos oficiais (rubrica de ML; não vai para o produto)
 ]
 
+[project.scripts]
+# Comando de linha do esqueleto (ET4d); a interface substitui o uso diário na ET8
+meter-reader = "meter_reader.cli:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]  # layout src/: só o que está em src/ entra no pacote
 
