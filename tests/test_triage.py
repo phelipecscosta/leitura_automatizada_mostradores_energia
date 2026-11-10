@@ -139,3 +139,30 @@ def test_predict_reads_the_photo_with_the_training_preprocessing(tmp_path):
     with torch.no_grad():
         expected = model.decide(model.ensemble(x))[0]
     assert model.predict(path) == expected
+
+
+
+
+# ---------------------------------------------------------------------
+# Artefato aceito pelo produto (D3)
+# ---------------------------------------------------------------------
+
+import hashlib  # noqa: E402
+import re  # noqa: E402
+
+from meter_reader.config import ConfigError, get_triage_artifact  # noqa: E402
+from meter_reader.triage import PRODUCT_TRIAGE_SHA256  # noqa: E402
+
+
+def test_product_sha_is_the_c4_artifact() -> None:
+    assert re.fullmatch(r"[0-9a-f]{64}", PRODUCT_TRIAGE_SHA256)
+    assert PRODUCT_TRIAGE_SHA256.startswith("ee4fc0309027")  # E66
+
+
+def test_configured_artifact_matches_product_sha() -> None:
+    # Integração: pulado quando o artefato não está configurado (clone limpo)
+    try:
+        path = get_triage_artifact()
+    except ConfigError:
+        pytest.skip("Artefato da triagem não configurado neste ambiente.")
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == PRODUCT_TRIAGE_SHA256

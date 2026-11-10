@@ -87,6 +87,12 @@ def rejection_destination(probs: torch.Tensor) -> list[str]:
 ARTIFACT_FORMAT = 1
 
 
+# SHA-256 do único artefato aceito por esta versão do produto (D3; E01, E66).
+# Fica no código, e não no .env, para que trocar o arquivo não baste para
+# trocar o modelo. Muda junto com o artefato, num commit próprio.
+PRODUCT_TRIAGE_SHA256 = "ee4fc0309027bd5ce0444f7270e17c562d5342531eb5fe06aadc2c77bad8a375"
+
+
 class TriageArtifactError(ValueError):
     """Artefato da triagem inválido, alterado ou incompatível com este produto."""
 
