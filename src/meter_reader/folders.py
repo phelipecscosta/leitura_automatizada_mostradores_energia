@@ -85,3 +85,36 @@ def stale_copies(rows: Iterable[ControlRow], lot: Path | str) -> list[Path]:
         found.extend(folder / row.photo_name for folder in folders
                      if folder != current and (folder / row.photo_name).exists())
     return found
+
+
+
+def stale_list_name(batch_date: date) -> str:
+    """Nome do arquivo com a lista das cópias antigas do lote."""
+    return f"Copias_antigas_{batch_date:%d%m%Y}.txt"
+
+
+def stale_by_folder(paths: Iterable[Path], lot: Path | str) -> dict[str, int]:
+    """Contagem das cópias antigas por pasta, relativa à pasta do lote (vai para o resumo)."""
+    lot = Path(lot)
+    counts: dict[str, int] = {}
+    for p in paths:
+        folder = Path(p).parent.relative_to(lot).as_posix()
+        counts[folder] = counts.get(folder, 0) + 1
+    return counts
+
+
+def write_stale_list(lot: Path | str, paths: Iterable[Path], batch_date: date) -> Path | None:
+    """Grava a lista das cópias antigas na pasta do lote (opção b); sem cópias, apaga a lista anterior.
+
+    [Dados sensíveis] O arquivo contém nomes reais de fotos: fica só na pasta
+    de saída, que nunca pode estar dentro de um repositório.
+    """
+    lot = Path(lot)
+    target = lot / stale_list_name(batch_date)
+    paths = list(paths)
+    if not paths:
+        target.unlink(missing_ok=True)  # nunca deixa uma lista desatualizada
+        return None
+    lines = sorted(Path(p).relative_to(lot).as_posix() for p in paths)
+    target.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return target

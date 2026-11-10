@@ -109,3 +109,18 @@ def test_stale_copies_are_reported_not_deleted(tmp_path) -> None:
     (lot / "Rejeitadas" / "Outros" / "c.jpg").write_bytes(b"novo")
     assert folders.stale_copies([OTHER, REVIEW], lot) == [old]
     assert old.exists()
+
+
+
+
+def test_stale_list_written_and_removed(tmp_path) -> None:
+    lot = tmp_path / "lote"
+    folders.create_structure(lot)
+    paths = [lot / "Verificar" / "z.jpg", lot / "Rejeitadas" / "Outros" / "a.jpg"]
+    assert folders.stale_by_folder(paths, lot) == {"Verificar": 1, "Rejeitadas/Outros": 1}
+    target = folders.write_stale_list(lot, paths, date(2026, 5, 20))
+    assert target == lot / "Copias_antigas_20052026.txt"
+    assert target.read_text(encoding="utf-8") == "Rejeitadas/Outros/a.jpg\nVerificar/z.jpg\n"
+    # Sem cópias no processamento seguinte: a lista anterior é apagada
+    assert folders.write_stale_list(lot, [], date(2026, 5, 20)) is None
+    assert not target.exists()
