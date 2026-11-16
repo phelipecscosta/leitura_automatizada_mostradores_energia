@@ -54,3 +54,6 @@ where = ["src"]  # layout src/: só o que está em src/ entra no pacote
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]  # permite importar o pacote training/ nos testes
+markers = [
+    "lento: exportação real para ONNX; só roda com --lentos (tests/conftest.py)",
+]

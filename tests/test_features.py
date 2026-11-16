@@ -51,29 +51,6 @@ def test_cache_is_reused_only_for_the_same_photo_list(tmp_path, monkeypatch):
     ft.load_or_extract(photos[:2], "baseline_224", tmp_path)  # outra lista: recalcula
     assert len(calls) == 2
 
-def test_extraction_runs_without_tf32(monkeypatch, tmp_path):
-    from training.lab02_triage import TriageModel
-    seen = []
-    original = TriageModel.embed
-
-    def spy(self, x):
-        seen.append(torch.backends.cudnn.allow_tf32)
-        return original(self, x)
-
-    monkeypatch.setattr(TriageModel, "embed", spy)
-    photos = _photos(tmp_path, 2) if "_photos" in globals() else None
-    if photos is None:
-        pytest.skip("Auxiliar de fotos sintéticas com outro nome neste arquivo.")
-    ft.extract(photos, "mobilenet_v3_large_224", pretrained=False)
-    assert seen and not any(seen)
-
-
-def test_old_cache_name_is_ignored(tmp_path):
-    assert ft.CACHE_VERSION in f"caracteristicas_x_{ft.CACHE_VERSION}.npz"
-    old = tmp_path / "caracteristicas_baseline_224.npz"
-    old.write_bytes(b"cache antigo")  # nome sem versão: não pode ser lido
-    path = tmp_path / f"caracteristicas_baseline_224_{ft.CACHE_VERSION}.npz"
-    assert not path.exists()
 
 def test_extraction_runs_without_tf32(tmp_path, monkeypatch):
     # Espiona o embed: o TF32 precisa estar desligado durante a extração

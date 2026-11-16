@@ -31,6 +31,9 @@ def test_export_matches_pytorch_in_both_orientations(tmp_path):
 
 import pytest  # noqa: E402
 
+# Exportações reais para ONNX (cerca de 47 s no total): só rodam com --lentos (regra A2)
+pytestmark = pytest.mark.lento
+
 from meter_reader.triage import MobileNetTriageNet, TriageEnsemble  # noqa: E402
 from training.finetune import DinoClassifier  # noqa: E402
 from training.onnx_export import TRIAGE5_OUTPUT_NAMES, run_onnx_triage5  # noqa: E402
