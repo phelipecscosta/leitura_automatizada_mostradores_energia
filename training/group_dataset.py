@@ -108,7 +108,14 @@ TEST_LABELS = ("rotulos_grupos_teste.csv",
 # Versão corrigida pela revisão R3 (training.label_corrections); a original nunca muda
 DEV_LABELS_R3 = ("rotulos_grupos_r3.csv",
                  "c5fda76dc5512c39f46cfffa2731f85fcdc887a744608866834672a11306ff54")
-LABEL_VERSIONS = {"v1": DEV_LABELS, "r3": DEV_LABELS_R3}
+# Versões corrigidas pela revisão R4, guiada pelas caixas (ET5a). Os modelos já
+# treinados seguem com a R3; a abertura do teste (E68) usou TEST_LABELS.
+DEV_LABELS_R4 = ("rotulos_grupos_r4.csv",
+                 "3b293753e31a169b07a1fe521cdfdcee225a4809a734ca4032f02a7e1128703d")
+TEST_LABELS_R4 = ("rotulos_grupos_teste_r4.csv",
+                  "19ef463f1aa9ded939b71279f67819ad8a83df470710b4f62dabfceb57e46479")
+LABEL_VERSIONS = {"v1": DEV_LABELS, "r3": DEV_LABELS_R3, "r4": DEV_LABELS_R4}
+TEST_LABEL_VERSIONS = {"original": TEST_LABELS, "r4": TEST_LABELS_R4}
 
 
 def attach_paths(photos: list[GroupPhoto], manifest: list[dict],
