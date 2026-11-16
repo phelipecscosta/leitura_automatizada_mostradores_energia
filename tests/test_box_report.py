@@ -74,3 +74,11 @@ def test_rules_have_descriptions():
     for group, classes in [("out_acesso", {"numero_serie"}), ("indeterminado", {"display_digital"}),
                            ("cic_disco", {"display_digital"}), ("cic_uma_leitura", set())]:
         assert set(br.flags(group, group.startswith("cic"), classes)) <= set(br.RULES)
+
+def test_sample_versions_match_the_names_of_the_draw():
+    # Os nomes registrados aqui são os mesmos que o box_sample grava
+    from training import box_report as br
+    from training import box_sample as bsm
+    assert br.SAMPLE_VERSIONS["v1"][0] == bsm.SAMPLE_NAME
+    assert br.SAMPLE_VERSIONS["v2"][0] == bsm.SAMPLE_V2_NAME
+    assert (br.SAMPLE_NAME, br.SAMPLE_SHA256) == br.SAMPLE_VERSIONS["v2"]

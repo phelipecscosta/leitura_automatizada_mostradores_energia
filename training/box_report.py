@@ -13,8 +13,15 @@ import pandas as pd
 
 from training.box_labels import BOX_CLASSES, Box, PhotoRecord
 
-SAMPLE_NAME = "amostra_caixas.csv"
-SAMPLE_SHA256 = "65e690f04ed1777490c89f9ba8b978e227bafdeca01833ae8f1b3f908d657256"
+# Versões da amostra das caixas (nome e SHA-256). A v1 (E75) nunca muda; a v2 amplia
+# os determinados do teste antes da primeira leitura pelo detector (ET5b, D6 b).
+SAMPLE_VERSIONS = {
+    "v1": ("amostra_caixas.csv",
+           "65e690f04ed1777490c89f9ba8b978e227bafdeca01833ae8f1b3f908d657256"),
+    "v2": ("amostra_caixas_v2.csv",
+           "5423bbdace93f225f2f9d2cc0b6980b871fae140ca52e5bdaffcef4d95244281"),
+}
+SAMPLE_NAME, SAMPLE_SHA256 = SAMPLE_VERSIONS["v2"]  # versão vigente
 FLAGS_NAME = "caixas_divergencias.csv"
 
 # Regras de divergência entre caixas e grupo, fixadas antes de rodar a conferência
