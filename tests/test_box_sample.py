@@ -110,3 +110,25 @@ def test_save_or_check_round_trip_and_refusal(small, tmp_path):
     with pytest.raises(ValueError):
         bs.save_or_check(changed, tmp_path)
     assert bs.save_or_check(sample, tmp_path) == digest  # o arquivo não foi alterado
+
+def test_extend_test_keeps_the_draw_and_appends_in_order(small):
+    sample = bs.draw(small)
+    extended = bs.extend_test(sample, small, extra=20)
+    old = sample[(sample["conjunto"] == "teste") & sample["determinado"]]
+    new = extended[(extended["conjunto"] == "teste") & extended["determinado"]]
+    assert set(old["pseudonimo"]) < set(new["pseudonimo"]) and len(new) == len(old) + 20
+    # As linhas antigas continuam, na mesma ordem; só o peso dos determinados do teste muda
+    pd.testing.assert_frame_equal(extended.iloc[:len(sample)].drop(columns="peso"),
+                                  sample.drop(columns="peso"))
+    assert extended["ordem"].tolist() == list(range(1, len(extended) + 1))
+    assert new["peso"].nunique() == 1
+    assert extended.loc[extended["conjunto"] == "teste", "peso"].sum() == pytest.approx(75)
+    # As novas são as próximas da mesma ordem fixa
+    passed = small[(small["conjunto"] == "teste") & small["determinado"]]
+    expected = bs.shuffled(passed["pseudonimo"], bs.TEST_DETERMINED_SEED)[:len(new)]
+    assert set(new["pseudonimo"]) == set(expected)
+
+
+def test_extend_test_rejects_more_than_the_population(small):
+    with pytest.raises(ValueError):
+        bs.extend_test(bs.draw(small), small, extra=1000)

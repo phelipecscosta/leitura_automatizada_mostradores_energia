@@ -36,6 +36,12 @@ DISTANT_CONDITIONS = ("distante_parede", "distante_poste")  # perdas da triagem 
 SAMPLE_NAME = "amostra_caixas.csv"
 SAMPLE_COLUMNS = ("ordem", "pseudonimo", "conjunto", "lote", "grupo", "condicao",
                   "determinado", "estrato", "peso")
+# Ampliação do teste antes da primeira leitura pelo detector (ET5b, D6 b): as
+# próximas fotos da mesma ordem fixa dos determinados. A versão original nunca muda.
+TEST_EXTENSION = 600
+SAMPLE_V2_NAME = "amostra_caixas_v2.csv"
+TEST_DETERMINED_SEED = "caixas:teste:determinados"
+EXTENSION_ORDER_SEED = "caixas:ordem:ampliacao_teste"
 
 
 def passes(score: np.ndarray, threshold: float) -> np.ndarray:
@@ -151,7 +157,7 @@ def draw(pop: pd.DataFrame) -> pd.DataFrame:
         parts.append(rej[["pseudonimo"]].assign(peso=1.0))  # A4 (a): todos os rejeitáveis
         budget = size - len(rej)
         if subset == "teste":  # sem mínimo por estrato: aleatória entre os determinados
-            parts.append(_take(det, budget, "caixas:teste:determinados"))
+            parts.append(_take(det, budget, TEST_DETERMINED_SEED))
             continue
         sizes = det["estrato"].value_counts().to_dict()
         full = {s for s in sizes if s.split("|")[0] in FULL_GROUPS
@@ -164,9 +170,9 @@ def draw(pop: pd.DataFrame) -> pd.DataFrame:
     return sample.sort_values("ordem")[list(SAMPLE_COLUMNS)].reset_index(drop=True)
 
 
-def save_or_check(sample: pd.DataFrame, work_dir) -> str:
+def save_or_check(sample: pd.DataFrame, work_dir, name: str = SAMPLE_NAME) -> str:
     """Grava a amostra na pasta de trabalho; se já existir, confere que é idêntica."""
-    path = work_dir / SAMPLE_NAME
+    path = work_dir / name
     if path.exists():
         # round_trip: o leitor padrão pode errar o último dígito dos pesos
         saved = pd.read_csv(path, dtype={"determinado": bool}, float_precision="round_trip")
@@ -178,14 +184,54 @@ def save_or_check(sample: pd.DataFrame, work_dir) -> str:
         print("Amostra gravada.")
     return file_sha256(path)
 
+def extend_test(sample: pd.DataFrame, pop: pd.DataFrame, extra: int) -> pd.DataFrame:
+    """Amplia os determinados do teste com as próximas `extra` fotos da mesma ordem fixa.
+
+    As fotos já sorteadas continuam, com o peso recalculado (população ÷ sorteadas);
+    as novas entram no fim da ordem de anotação, numa ordem aleatória própria. O
+    desenvolvimento e os rejeitáveis do teste não mudam.
+    """
+    passed = pop[pop["passa"] & (pop["conjunto"] == "teste") & pop["determinado"]]
+    old = (sample["conjunto"] == "teste") & sample["determinado"]
+    n_old = int(old.sum())
+    if n_old + extra > len(passed):
+        raise ValueError("Ampliação maior que a população de determinados do teste.")
+    codes = shuffled(passed["pseudonimo"], TEST_DETERMINED_SEED)[: n_old + extra]
+    if set(codes[:n_old]) != set(sample.loc[old, "pseudonimo"]):
+        raise ValueError("A ordem fixa não reproduz o sorteio original; nada foi gravado.")
+    weight = len(passed) / len(codes)
+
+    out = sample.copy()
+    out.loc[old, "peso"] = weight
+    new = passed[passed["pseudonimo"].isin(codes[n_old:])].copy()
+    new["estrato"] = [stratum(g, c) for g, c in zip(new["grupo"], new["condicao"])]
+    new["peso"] = weight
+    start = int(out["ordem"].max())
+    order = shuffled(new["pseudonimo"], EXTENSION_ORDER_SEED)
+    new["ordem"] = new["pseudonimo"].map({c: start + i + 1 for i, c in enumerate(order)})
+    new = new.sort_values("ordem")[list(SAMPLE_COLUMNS)]
+    return pd.concat([out, new], ignore_index=True)
 
 if __name__ == "__main__":
+    import sys
+
     pd.set_option("display.width", 200, "display.max_rows", 200)
     pop = population()
     print(check(pop), end="\n\n")
-    sample = draw(pop)
-    summary = sample.groupby(["conjunto", "estrato"]).agg(fotos=("pseudonimo", "size"),
-                                                          peso=("peso", "first"))
-    print(summary, end="\n\n")
+    work_dir = get_work_dir()
+    if sys.argv[1:] == ["--ampliar-teste"]:
+        # Parte da amostra gravada e confere que ela reproduz o sorteio original
+        v1 = pd.read_csv(work_dir / SAMPLE_NAME, dtype={"determinado": bool},
+                         float_precision="round_trip")
+        if not v1.equals(draw(pop).astype(v1.dtypes.to_dict())):
+            raise SystemExit("A amostra gravada difere do sorteio; nada foi alterado.")
+        sample = extend_test(v1, pop, TEST_EXTENSION)
+        name = SAMPLE_V2_NAME
+    else:
+        sample = draw(pop)
+        name = SAMPLE_NAME
+        summary = sample.groupby(["conjunto", "estrato"]).agg(fotos=("pseudonimo", "size"),
+                                                              peso=("peso", "first"))
+        print(summary, end="\n\n")
     print(sample.groupby("conjunto").agg(fotos=("pseudonimo", "size"), soma_pesos=("peso", "sum")))
-    print(f"SHA-256 da amostra: {save_or_check(sample, get_work_dir())}")
+    print(f"SHA-256 de {name}: {save_or_check(sample, work_dir, name)}")
