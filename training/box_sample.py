@@ -55,7 +55,13 @@ def artifact_record(work_dir) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _frame(photos, passed: np.ndarray, subset: str) -> pd.DataFrame:
+def meter_type(probs: np.ndarray) -> np.ndarray:
+    """Tipo da triagem de quem segue: o mais provável entre digital e ciclométrico, como no
+    produto (meter_reader.triage); é a referência do Validador 2 (ET5b)."""
+    return np.where(np.asarray(probs)[:, 0] >= np.asarray(probs)[:, 1], "digital", "ciclometrico")
+
+
+def _frame(photos, passed: np.ndarray, subset: str, probs: np.ndarray) -> pd.DataFrame:
     labels = np.array([p.product_class for p in photos])
     return pd.DataFrame({
         "pseudonimo": [p.pseudonym for p in photos],
@@ -65,6 +71,7 @@ def _frame(photos, passed: np.ndarray, subset: str) -> pd.DataFrame:
         "condicao": [p.condition for p in photos],
         "determinado": np.isin(labels, DETERMINED),
         "passa": passed,
+        "tipo_triagem": meter_type(probs),
     })
 
 
@@ -80,15 +87,17 @@ def population() -> pd.DataFrame:
     labels = np.array([p.product_class for p in dev])
     lots = np.array([p.lot for p in dev])
     logits = load_oof(work_dir, run_name("C4", "W-b", VERSION), [p.pseudonym for p in dev])
-    dev_score = rejection_score(calibrate_nested(logits, labels, lots).probs)
+    dev_probs = calibrate_nested(logits, labels, lots).probs
+    dev_score = rejection_score(dev_probs)
 
     # Teste: logits antes da temperatura, gravados uma única vez
     test = [p for p in load_group_photos(TEST_LABELS) if p.paired]
     raw = load_oof(work_dir, TEST_LOGITS, [p.pseudonym for p in test])
-    test_score = rejection_score(np.exp(class_log_probs(raw, temperature)))
+    test_probs = np.exp(class_log_probs(raw, temperature))
+    test_score = rejection_score(test_probs)
 
-    return pd.concat([_frame(dev, passes(dev_score, threshold), "desenvolvimento"),
-                      _frame(test, passes(test_score, threshold), "teste")],
+    return pd.concat([_frame(dev, passes(dev_score, threshold), "desenvolvimento", dev_probs),
+                      _frame(test, passes(test_score, threshold), "teste", test_probs)],
                      ignore_index=True)
 
 

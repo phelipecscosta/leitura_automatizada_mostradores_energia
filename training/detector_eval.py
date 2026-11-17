@@ -122,6 +122,7 @@ class ClassMatches:
     pred_photo: np.ndarray  # índice da foto de cada prevista
     gt_photo: np.ndarray    # índice da foto de cada anotada
     coverage: np.ndarray    # fração de cada anotada casada dentro da prevista (nan sem casamento)
+    presorted: bool = False  # previstas já em ordem decrescente de confiança
 
 
 def match_class(photos, preds: list[dict], label: int) -> ClassMatches:
@@ -144,8 +145,10 @@ def match_class(photos, preds: list[dict], label: int) -> ClassMatches:
         pred_photo.append(np.full(len(conf), i))
         gt_photo.append(np.full(len(gt), i))
         coverage.append(cov)
-    return ClassMatches(_cat(scores, float), _cat(tp, bool), _cat(pred_photo, int),
-                        _cat(gt_photo, int), _cat(coverage, float))
+    scores, tp, pred_photo = _cat(scores, float), _cat(tp, bool), _cat(pred_photo, int)
+    order = np.argsort(-scores, kind="stable")  # uma vez só: o bootstrap reaproveita a ordem
+    return ClassMatches(scores[order], tp[order], pred_photo[order], _cat(gt_photo, int),
+                        _cat(coverage, float), presorted=True)
 
 
 def _cat(parts: list[np.ndarray], dtype) -> np.ndarray:
@@ -163,7 +166,7 @@ def weighted_ap(m: ClassMatches, photo_weights: np.ndarray) -> float:
         return float("nan")
     if len(m.scores) == 0:
         return 0.0  # há anotadas, mas nenhuma prevista
-    order = np.argsort(-m.scores, kind="stable")
+    order = np.arange(len(m.scores)) if m.presorted else np.argsort(-m.scores, kind="stable")
     pw = w[m.pred_photo[order]]
     tp_w = np.cumsum(pw * m.tp[order])
     all_w = np.cumsum(pw)
@@ -219,6 +222,24 @@ def bootstrap_selection_diff(photos, matches_a: dict, matches_b: dict, n_boot: i
     return out
 
 
+def bootstrap_seed_mean_diff(photos, seeds_a: list[dict], seeds_b: list[dict],
+                             n_boot: int = N_BOOT, seed: int = BOOT_SEED) -> np.ndarray:
+    """Diferenças (A − B) da média, entre sementes, da métrica de escolha (revisão R2).
+
+    `seeds_a` e `seeds_b`: os casamentos de cada semente de cada candidato, nas
+    mesmas fotos. As fotos são sorteadas uma vez por reamostragem, para as duas
+    partes e todas as sementes: o IC inclui o ruído entre sementes.
+    """
+    weights = np.array([p.weight for p in photos])
+    rng = np.random.default_rng(seed)
+    out = np.empty(n_boot)
+    for r in range(n_boot):
+        counts = np.bincount(rng.integers(0, len(photos), len(photos)), minlength=len(photos))
+        w = weights * counts
+        mean = lambda seeds: np.mean([np.mean([weighted_ap(m[c], w) for c in SELECTION_CLASSES])
+                                      for m in seeds])
+        out[r] = mean(seeds_a) - mean(seeds_b)
+    return out
 # ---------------------------------------------------------------------
 # Segunda porta (protocolo, 1.7; D3)
 # ---------------------------------------------------------------------

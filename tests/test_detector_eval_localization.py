@@ -104,3 +104,27 @@ def test_meter_family_follows_the_largest_display_above_the_threshold():
     assert meter_family([1, 3], [0.6, 0.8], 0.5) == "ciclometrico"   # kvarh conta como ciclométrico
     assert meter_family([4], [0.99], 0.5) is None                     # só número de série (B1)
     assert meter_family([1, 4], [0.4, 0.9], 0.5) is None              # display abaixo do limiar
+
+
+
+def test_seed_mean_bootstrap_is_zero_for_identical_and_positive_for_a_better_detector():
+    photos = [_photo(f"F-00000000000{i}", [[0, 0, 10, 10]], [4]) for i in range(6)]
+    good = [_pred([[0, 0, 10, 10]], [0.9], [4]) for _ in photos]
+    bad = [_pred([[20, 20, 30, 30]], [0.9], [4]) for _ in photos]  # sempre fora do campo
+    _, m_good = de.ap_table(photos, good)
+    _, m_bad = de.ap_table(photos, bad)
+    same = de.bootstrap_seed_mean_diff(photos, [m_good, m_good], [m_good, m_good], n_boot=10)
+    assert np.allclose(np.nan_to_num(same), 0.0)
+    better = de.bootstrap_seed_mean_diff(photos, [m_good], [m_bad], n_boot=10)
+    # Só a classe numero_serie tem anotadas: as outras duas dão nan na média
+    assert np.all(np.isnan(better)) or np.all(better[~np.isnan(better)] > 0)
+
+
+def test_match_class_is_presorted_and_ap_is_the_same():
+    photos = [_photo("F-000000000001", [[0, 0, 10, 10], [20, 0, 30, 10]], [1, 1])]
+    preds = [_pred([[20, 0, 30, 10], [0, 0, 10, 10], [50, 50, 60, 60]], [0.2, 0.9, 0.5], [1, 1, 1])]
+    m = de.match_class(photos, preds, 1)
+    assert m.presorted and list(m.scores) == [0.9, 0.5, 0.2]
+    unsorted = de.ClassMatches(m.scores[::-1], m.tp[::-1], m.pred_photo[::-1], m.gt_photo,
+                               m.coverage)
+    assert de.weighted_ap(m, np.ones(1)) == pytest.approx(de.weighted_ap(unsorted, np.ones(1)))
