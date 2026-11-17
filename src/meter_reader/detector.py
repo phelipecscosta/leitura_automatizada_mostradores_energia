@@ -128,3 +128,22 @@ def build_frcnn(shapes: Shapes, min_size: int, max_size: int,
         raise ValueError("É preciso uma lista de formas por nível da FPN (estágios mais o extra).")
     return FasterRCNN(backbone, NUM_CLASSES, rpn_anchor_generator=generator,
                       min_size=min_size, max_size=max_size, **rpn_kwargs)
+
+
+
+# ---------------------------------------------------------------------
+# Família vista pelo detector, para o Validador 2 (protocolo, 1.8; D5)
+# ---------------------------------------------------------------------
+
+_FAMILY = {1: "digital", 2: "ciclometrico", 3: "ciclometrico"}  # rótulo -> família; 4 não tem
+
+
+def meter_family(labels, scores, threshold: float) -> str | None:
+    """Família do display de maior confiança acima do limiar (A2), ou None se só houver
+    número de série ou nada (B1)."""
+    best, family = -1.0, None
+    for label, score in zip(labels, scores):
+        label, score = int(label), float(score)
+        if score >= threshold and label in _FAMILY and score > best:
+            best, family = score, _FAMILY[label]
+    return family
