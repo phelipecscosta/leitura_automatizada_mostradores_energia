@@ -114,8 +114,12 @@ DEV_LABELS_R4 = ("rotulos_grupos_r4.csv",
                  "3b293753e31a169b07a1fe521cdfdcee225a4809a734ca4032f02a7e1128703d")
 TEST_LABELS_R4 = ("rotulos_grupos_teste_r4.csv",
                   "19ef463f1aa9ded939b71279f67819ad8a83df470710b4f62dabfceb57e46479")
+# R5 do teste (ET5b, D6 b): a R4 mais as fotos novas do teste ampliado apontadas
+# pela conferência das caixas e revisadas às cegas. É a versão vigente do teste.
+TEST_LABELS_R5 = ("rotulos_grupos_teste_r5.csv",
+                  "c7cd1e964a9d9be20a156bbb86a5b88cf4a9d29b1ae9f10535fec3c6c273747e")
 LABEL_VERSIONS = {"v1": DEV_LABELS, "r3": DEV_LABELS_R3, "r4": DEV_LABELS_R4}
-TEST_LABEL_VERSIONS = {"original": TEST_LABELS, "r4": TEST_LABELS_R4}
+TEST_LABEL_VERSIONS = {"original": TEST_LABELS, "r4": TEST_LABELS_R4, "r5": TEST_LABELS_R5}
 
 
 def attach_paths(photos: list[GroupPhoto], manifest: list[dict],

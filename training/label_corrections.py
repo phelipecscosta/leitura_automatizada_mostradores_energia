@@ -9,10 +9,14 @@ alterada nem sobrescrita.
   partem da R3 -> rotulos_grupos_r4.csv; as do teste partem dos rótulos
   originais do teste -> rotulos_grupos_teste_r4.csv. A abertura do teste (E68)
   usou a versão anterior e não é recalculada.
+- R5 (ET5b, D6 b): as linhas do mesmo revisao_caixas.csv das fotos novas do teste
+  ampliado apontadas pela conferência (caixas_divergencias_ampliacao.csv), sobre
+  a R4 do teste -> rotulos_grupos_teste_r5.csv. O desenvolvimento não muda.
 
 Uso, a partir da raiz do produto:
-    python -m training.label_corrections          (R3)
-    python -m training.label_corrections caixas   (R4)
+    python -m training.label_corrections             (R3)
+    python -m training.label_corrections caixas      (R4)
+    python -m training.label_corrections ampliacao   (R5)
 """
 
 from __future__ import annotations
@@ -22,12 +26,15 @@ import sys
 
 from meter_reader.config import get_work_dir
 from training.build_manifest import file_sha256
-from training.group_dataset import DEV_LABELS, DEV_LABELS_R3, TEST_LABELS, GroupLabelFileError
+from training.group_dataset import (DEV_LABELS, DEV_LABELS_R3, TEST_LABELS, TEST_LABELS_R4,
+                                    GroupLabelFileError)
 from training.group_labels import FOLDERS
 
 R3_LABELS_NAME = "rotulos_grupos_r3.csv"
 R4_LABELS_NAME = "rotulos_grupos_r4.csv"
 TEST_R4_LABELS_NAME = "rotulos_grupos_teste_r4.csv"
+TEST_R5_LABELS_NAME = "rotulos_grupos_teste_r5.csv"
+EXTENSION_FLAGS = "caixas_divergencias_ampliacao.csv"  # fotos novas do teste apontadas (ET5b)
 BOX_REVIEW = ("revisao_caixas", "revisao_caixas.csv")
 SUBSETS = ("desenvolvimento", "teste")
 VALID_PAIRS = set(FOLDERS.values())
@@ -62,6 +69,14 @@ def split_review(review: list[dict]) -> dict[str, list[dict]]:
         parts[item["conjunto"]].append(item)
     return parts
 
+def select_review(review: list[dict], codes: set[str]) -> list[dict]:
+    """Linhas da revisão das fotos pedidas; exige todas revisadas, uma vez e só do teste."""
+    part = [item for item in review if item["pseudonimo"] in codes]
+    if len(part) != len(codes) or len({r["pseudonimo"] for r in part}) != len(codes):
+        raise GroupLabelFileError(f"Revisão: {len(part)} linha(s) para {len(codes)} foto(s) pedidas.")
+    if any(item["conjunto"] != "teste" for item in part):
+        raise GroupLabelFileError("Revisão: a ampliação só tem fotos do teste.")
+    return part
 
 def _read(path) -> tuple[list[str], list[dict]]:
     with path.open(encoding="utf-8", newline="") as file:
@@ -101,10 +116,20 @@ def main_r4() -> None:
     _new_version(work_dir, TEST_LABELS, parts["teste"], TEST_R4_LABELS_NAME)
 
 
+def main_r5() -> None:
+    work_dir = get_work_dir()
+    _, flagged = _read(work_dir / EXTENSION_FLAGS)
+    _, review = _read(work_dir.joinpath(*BOX_REVIEW))
+    part = select_review(review, {r["pseudonimo"] for r in flagged})
+    _new_version(work_dir, TEST_LABELS_R4, part, TEST_R5_LABELS_NAME)
+
+
 if __name__ == "__main__":
     if sys.argv[1:] == ["caixas"]:
         main_r4()
+    elif sys.argv[1:] == ["ampliacao"]:
+        main_r5()
     elif not sys.argv[1:]:
         main_r3()
     else:
-        raise SystemExit("Uso: python -m training.label_corrections [caixas]")
+        raise SystemExit("Uso: python -m training.label_corrections [caixas | ampliacao]")

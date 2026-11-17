@@ -59,10 +59,25 @@ def test_split_review_refuses_unknown_subset():
 
 def test_r4_versions_are_registered_with_the_generated_names():
     from training.group_dataset import LABEL_VERSIONS, TEST_LABEL_VERSIONS, TEST_LABELS
-    from training.label_corrections import R4_LABELS_NAME, TEST_R4_LABELS_NAME
+    from training.label_corrections import (R4_LABELS_NAME, TEST_R4_LABELS_NAME,
+                                            TEST_R5_LABELS_NAME)
     assert LABEL_VERSIONS["r4"][0] == R4_LABELS_NAME
     assert TEST_LABEL_VERSIONS["r4"][0] == TEST_R4_LABELS_NAME
+    assert TEST_LABEL_VERSIONS["r5"][0] == TEST_R5_LABELS_NAME
     assert TEST_LABEL_VERSIONS["original"] == TEST_LABELS  # a versão da E68 não muda
     digests = [sha for _, sha in (*LABEL_VERSIONS.values(), *TEST_LABEL_VERSIONS.values())]
     assert all(len(d) == 64 and int(d, 16) >= 0 for d in digests)
     assert len(set(digests)) == len(digests)  # nenhuma versão repete outra
+
+def test_select_review_requires_every_photo_once_and_only_test():
+    import pytest
+    from training.group_dataset import GroupLabelFileError
+    from training.label_corrections import select_review
+    review = [{"pseudonimo": "F-000000000001", "conjunto": "teste"},
+              {"pseudonimo": "F-000000000002", "conjunto": "teste"},
+              {"pseudonimo": "F-000000000003", "conjunto": "desenvolvimento"}]
+    assert len(select_review(review, {"F-000000000001", "F-000000000002"})) == 2
+    with pytest.raises(GroupLabelFileError):   # foto pedida sem revisão
+        select_review(review, {"F-000000000001", "F-000000000009"})
+    with pytest.raises(GroupLabelFileError):   # foto do desenvolvimento
+        select_review(review, {"F-000000000003"})
