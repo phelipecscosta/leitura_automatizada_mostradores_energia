@@ -29,6 +29,11 @@ from torchvision.ops import misc as misc_nn_ops
 DETECTOR_CLASSES = ("display_digital", "display_ciclometrico", "display_kvarh", "numero_serie")
 NUM_CLASSES = len(DETECTOR_CLASSES) + 1  # mais o fundo
 
+# Corte de confiança da inferência, o mesmo para todos os candidatos (revisão R3 b):
+# o padrão do SSDlite. O Faster R-CNN do torchvision usa 0,05 por padrão, o que
+# esconde da segunda porta e do leitor as caixas de confiança baixa.
+SCORE_THRESH = 0.001
+
 # Espinha pré-treinada no ImageNet (C2 i): a mesma da referência de detecção do torchvision
 BACKBONE_WEIGHTS = MobileNet_V3_Large_Weights.IMAGENET1K_V1
 
@@ -90,7 +95,7 @@ def build_ssd(shapes: Shapes, size: tuple[int, int] = (360, 480),
     if len(out_channels) != len(generator.shapes):
         raise ValueError("O SSDlite tem 6 níveis: são precisas formas para os 6.")
     head = SSDLiteHead(out_channels, generator.num_anchors_per_location(), NUM_CLASSES, norm_layer)
-    return SSD(backbone, generator, size, NUM_CLASSES, head=head, score_thresh=0.001,
+    return SSD(backbone, generator, size, NUM_CLASSES, head=head, score_thresh=SCORE_THRESH,
                nms_thresh=0.55, detections_per_img=300, topk_candidates=300,
                image_mean=[0.5, 0.5, 0.5], image_std=[0.5, 0.5, 0.5])
 
@@ -127,7 +132,8 @@ def build_frcnn(shapes: Shapes, min_size: int, max_size: int,
     if len(generator.shapes) != len(returned_layers) + 1:
         raise ValueError("É preciso uma lista de formas por nível da FPN (estágios mais o extra).")
     return FasterRCNN(backbone, NUM_CLASSES, rpn_anchor_generator=generator,
-                      min_size=min_size, max_size=max_size, **rpn_kwargs)
+                      min_size=min_size, max_size=max_size, box_score_thresh=SCORE_THRESH,
+                      **rpn_kwargs)
 
 
 

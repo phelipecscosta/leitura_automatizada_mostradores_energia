@@ -76,7 +76,7 @@ def test_gate_curve_and_threshold():
     has = np.array([True, True, True, True, False, False])
     curve = de.gate_curve(scores, has, np.ones(6))
     first = curve.iloc[0]
-    assert first["limiar"] == 0 and first["perda"] == 0 and first["cobertura"] == 0
+    assert first["limiar"] == de.MIN_THRESHOLD and first["perda"] == 0 and first["cobertura"] == 0
     row = curve[curve["limiar"] == 0.6].iloc[0]   # rejeita as duas sem campo
     assert row["perda"] == 0 and row["cobertura"] == 1.0
     row = curve[curve["limiar"] == 0.7].iloc[0]   # rejeita também uma com campo
@@ -128,3 +128,13 @@ def test_match_class_is_presorted_and_ap_is_the_same():
     unsorted = de.ClassMatches(m.scores[::-1], m.tp[::-1], m.pred_photo[::-1], m.gt_photo,
                                m.coverage)
     assert de.weighted_ap(m, np.ones(1)) == pytest.approx(de.weighted_ap(unsorted, np.ones(1)))
+
+
+
+def test_a_photo_with_field_and_no_box_is_always_lost():
+    # A foto com campo sem nenhuma caixa (escore 0) conta como perdida em qualquer limiar
+    scores = np.array([0.0, 0.9, 0.1])
+    has = np.array([True, True, False])
+    curve = de.gate_curve(scores, has, np.ones(3))
+    assert (curve["perda"] == 0.5).all()
+    assert curve.iloc[0]["cobertura"] == 0.0 and curve.iloc[-1]["cobertura"] == 1.0

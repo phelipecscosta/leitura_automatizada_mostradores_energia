@@ -62,3 +62,11 @@ def test_predictions_round_trip_through_the_part_file(tmp_path):
     assert codes == ["F-000000000001", "F-000000000002"] and meta["melhor_epoca"] == 3
     assert np.array_equal(back[0]["boxes"], preds[0]["boxes"]) and len(back[1]["scores"]) == 0
     assert not path.with_name(path.name + ".tmp").exists()
+
+
+def test_save_part_writes_weights_next_to_the_predictions(tmp_path):
+    import torch
+    path = tmp_path / "parte.npz"
+    rd.save_part(path, [], [], {}, {"w": torch.ones(2)})
+    assert torch.equal(torch.load(path.with_suffix(".pt"), weights_only=True)["w"], torch.ones(2))
+    assert not list(tmp_path.glob("*.tmp"))

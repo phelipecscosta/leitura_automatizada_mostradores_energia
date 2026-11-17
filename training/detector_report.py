@@ -30,6 +30,9 @@ MAX_P95_MS = 200   # L1
 LATENCY_P95_MS = {"S1": 31.5, "F1": 102.4, "F2": 358.6}
 CPU_CANDIDATES, GPU_CANDIDATE = ("S1", "F1"), "F2"   # na ordem de simplicidade
 SUMMARY_NAME = "relatorio_desenvolvimento.json"
+# Corte de confiança das partes gravadas antes da revisão R3, que não o registravam:
+# o padrão de cada arquitetura no torchvision
+LEGACY_SCORE_THRESH = {"S1": 0.001, "F1": 0.05, "F2": 0.05}
 
 
 @dataclass
@@ -176,7 +179,7 @@ def main() -> None:
     pop = population()
     triage_type = dict(zip(pop["pseudonimo"], pop["tipo_triagem"]))
 
-    summaries, results, formas = {}, {}, set()
+    summaries, results, formas, cuts = {}, {}, set(), set()
     for name in (*CPU_CANDIDATES, GPU_CANDIDATE):
         seeds = []
         for seed in SEEDS:
@@ -188,18 +191,27 @@ def main() -> None:
                 if meta["sha_caixas"] != BOXES_SHA256:
                     raise SystemExit(f"{name}: parte treinada com outro gabarito.")
                 formas.add(meta["sha_formas"])
+                cuts.add((name, meta.get("corte_confianca", LEGACY_SCORE_THRESH[name])))
                 codes += c
                 preds += p
             seeds.append(align(codes, preds, photos))
         summaries[name], results[name] = summarize(name, photos, seeds, triage_type)
     if len(formas) != 1:
         raise SystemExit("As partes usam arquivos de formas diferentes.")
+    by_name = {}
+    for name, cut in cuts:
+        by_name.setdefault(name, set()).add(cut)
+    if any(len(v) != 1 for v in by_name.values()):
+        raise SystemExit("Partes de um mesmo candidato com cortes de confiança diferentes.")
+    for name, (cut,) in by_name.items():
+        summaries[name]["corte_confianca"] = cut
     decision = choose(summaries, results, photos)
 
     pd.set_option("display.width", 200)
     table = pd.DataFrame({n: {**{c: round(100 * s["ap_media"][c], 2) for c in DETECTOR_CLASSES},
                               "selecao": round(100 * s["selecao_media"], 2),
-                              "viavel": s["viavel"], "limiar": s.get("limiar")}
+                              "viavel": s["viavel"], "limiar": s.get("limiar"),
+                              "corte": s["corte_confianca"]}
                           for n, s in summaries.items()}).T
     print("AP ponderada média das 3 sementes (pontos de 0 a 100) e limiar da porta:")
     print(table, end="\n\n")

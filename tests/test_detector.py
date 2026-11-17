@@ -84,3 +84,10 @@ def test_low_latency_rpn_reaches_the_model():
     model = det.build_frcnn(FRCNN_SHAPES, 360, 480, **det.LOW_LATENCY_RPN)
     assert model.rpn._post_nms_top_n["testing"] == 150
     assert model.rpn._pre_nms_top_n["testing"] == 150
+
+
+
+def test_both_architectures_use_the_same_score_threshold():
+    ssd = det.build_ssd(SSD_SHAPES)
+    frcnn = det.build_frcnn(FRCNN_SHAPES, 360, 480)
+    assert ssd.score_thresh == det.SCORE_THRESH == frcnn.roi_heads.score_thresh == 0.001

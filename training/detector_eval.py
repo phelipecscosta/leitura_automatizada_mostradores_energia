@@ -244,6 +244,9 @@ def bootstrap_seed_mean_diff(photos, seeds_a: list[dict], seeds_b: list[dict],
 # Segunda porta (protocolo, 1.7; D3)
 # ---------------------------------------------------------------------
 
+MIN_THRESHOLD = float(np.nextafter(0.0, 1.0))  # rejeita só as fotos sem nenhuma caixa
+
+
 def photo_score(pred: dict) -> float:
     """Escore da foto: a maior confiança entre as caixas detectadas, de qualquer classe."""
     scores = np.asarray(pred["scores"])
@@ -255,12 +258,14 @@ def gate_curve(scores: np.ndarray, has_field: np.ndarray, weights: np.ndarray,
     """Uma linha por limiar t (rejeita-se com escore < t), do menor ao maior.
 
     Perda ponderada das fotos com campo, o seu limite superior de Kish e a
-    cobertura ponderada das fotos sem campo. O primeiro limiar (0) não rejeita nada.
+    cobertura ponderada das fotos sem campo. Uma foto sem nenhuma caixa (escore 0)
+    é sempre rejeitada: o leitor não teria recorte para ler (revisão R3 a). Por isso
+    o menor limiar é o menor número positivo, e não zero.
     """
     scores, has, w = (np.asarray(scores, float), np.asarray(has_field, bool),
                       np.asarray(weights, float))
     n_eff = kish_n(w[has])
-    thresholds = np.unique(np.concatenate([[0.0], scores]))
+    thresholds = np.unique(np.concatenate([[MIN_THRESHOLD], scores[scores > 0]]))
     order = np.argsort(scores, kind="stable")
     s_sorted = scores[order]
     lost_w = np.cumsum(np.where(has[order], w[order], 0.0))

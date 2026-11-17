@@ -7,7 +7,8 @@ Uso, a partir da raiz do repositório do produto:
 Cada par lote × semente é gravado assim que termina, em
 <pasta de trabalho>/experimentos/detector/<candidato>/, e uma nova chamada retoma
 do ponto em que parou. Cada parte guarda as predições fora da dobra (só
-pseudônimos), a época escolhida, o histórico e as impressões digitais dos dados.
+pseudônimos), a época escolhida, o histórico, o corte de confiança e as
+impressões digitais dos dados; os pesos da execução ficam ao lado, em .pt.
 """
 from __future__ import annotations
 
@@ -22,6 +23,7 @@ import torch
 
 from meter_reader.config import get_work_dir
 from training.build_manifest import file_sha256
+from meter_reader.detector import SCORE_THRESH
 from training.detector_anchors import ANCHORS_NAME, CANDIDATES
 from training.detector_dataset import (BOXES_SHA256, DetectorDataset, DetectorPhoto, fold_indices,
                                        internal_split, load_detector_photos)
@@ -49,9 +51,17 @@ def part_path(work_dir: Path, name: str, lot: str, seed: int) -> Path:
     return work_dir / OUTPUT_FOLDER / name / f"{lot}_s{seed}.npz"
 
 
-def save_part(path: Path, codes: list[str], preds: list[dict], meta: dict) -> None:
-    """Gravação atômica: temporário na mesma pasta e os.replace."""
+def save_part(path: Path, codes: list[str], preds: list[dict], meta: dict,
+              state_dict: dict | None = None) -> None:
+    """Gravação atômica: temporário na mesma pasta e os.replace. Os pesos, se dados, são
+    gravados antes das predições, com o mesmo nome e extensão .pt (revisão R3): uma
+    correção de inferência não exige retreinar."""
     path.parent.mkdir(parents=True, exist_ok=True)
+    if state_dict is not None:
+        weights = path.with_suffix(".pt")
+        tmp_w = weights.with_name(weights.name + ".tmp")
+        torch.save(state_dict, tmp_w)
+        os.replace(tmp_w, weights)
     tmp = path.with_name(path.name + ".tmp")
     with tmp.open("wb") as file:
         np.savez(file, meta=np.array(json.dumps(meta)), **flatten_predictions(codes, preds))
@@ -101,8 +111,10 @@ def run_training(name: str, device: str) -> None:
                             device)
             meta = {"candidato": name, "lote_avaliado": lot, "semente": seed,
                     "melhor_epoca": best_epoch, "historico": history, "treino": asdict(cfg),
-                    "sha_caixas": BOXES_SHA256, "sha_formas": shapes_sha}
-            save_part(path, [p.pseudonym for p in held], preds, meta)
+                                       "sha_caixas": BOXES_SHA256, "sha_formas": shapes_sha,
+                    "corte_confianca": SCORE_THRESH}
+            save_part(path, [p.pseudonym for p in held], preds, meta,
+                      {k: v.cpu() for k, v in model.state_dict().items()})
             print(f"{tag} gravado; melhor época {best_epoch}", flush=True)
             del model
             torch.cuda.empty_cache()
