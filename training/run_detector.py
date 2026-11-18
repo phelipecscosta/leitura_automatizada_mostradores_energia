@@ -3,12 +3,15 @@
 Uso, a partir da raiz do repositório do produto:
     python -m training.run_detector tempo          (1 época de cada candidato; nada é gravado)
     python -m training.run_detector treinar S1     (um candidato: 3 dobras × 3 sementes)
+    python -m training.run_detector treinar S1 coco   (ablação COCO, revisão R4: pasta S1_coco)
 
 Cada par lote × semente é gravado assim que termina, em
 <pasta de trabalho>/experimentos/detector/<candidato>/, e uma nova chamada retoma
 do ponto em que parou. Cada parte guarda as predições fora da dobra (só
 pseudônimos), a época escolhida, o histórico, o corte de confiança e as
 impressões digitais dos dados; os pesos da execução ficam ao lado, em .pt.
+
+
 """
 from __future__ import annotations
 
@@ -32,6 +35,18 @@ from training.detector_train import (DetectorTrainConfig, flatten_predictions, m
 
 SEEDS = (0, 1, 2)
 OUTPUT_FOLDER = Path("experimentos") / "detector"
+
+COCO_SUFFIX = "_coco"  # pasta da ablação COCO (revisão R4)
+
+
+def variant_name(name: str, coco: bool) -> str:
+    """Nome da pasta das partes: o candidato, ou o candidato com o sufixo da ablação.
+    A ablação existe só para o vencedor (protocolo, 1.4)."""
+    if not coco:
+        return name
+    if name != "S1":
+        raise SystemExit("A ablação COCO existe só para o S1 (protocolo, 1.4).")
+    return name + COCO_SUFFIX
 
 
 def candidate(name: str):
@@ -91,28 +106,38 @@ def run_timing(device: str) -> None:
         torch.cuda.empty_cache()
 
 
-def run_training(name: str, device: str) -> None:
+def run_training(name: str, device: str, coco: bool = False) -> None:
     cand = candidate(name)
+    folder = variant_name(name, coco)
     work_dir = get_work_dir()
     shapes, shapes_sha = load_shapes(work_dir)
     photos = load_detector_photos()
     cfg = DetectorTrainConfig()
+    weights_meta = {"pesos_iniciais": "imagenet"}
+    if coco:  # registro do que a ablação carregou (revisão R4, A-a)
+        from training.detector_coco import COCO_WEIGHTS, coco_state, prefix_keys
+        keys = prefix_keys(cand.build(shapes[name]["formas"]).state_dict(), coco_state())
+        weights_meta = {"pesos_iniciais": "imagenet_e_prefixo_coco", "coco_tensores": len(keys),
+                        "coco_primeira_fora": next(
+                            k for k in cand.build(shapes[name]["formas"]).state_dict()
+                            if k.startswith("backbone.features.") and k not in keys),
+                        "coco_pesos": COCO_WEIGHTS.url}
     for seed in SEEDS:
         for lot, fit, internal, held in _folds(photos):
-            tag = f"[{name} {lot} s{seed}]"
-            path = part_path(work_dir, name, lot, seed)
+            tag = f"[{folder} {lot} s{seed}]"
+            path = part_path(work_dir, folder, lot, seed)
             if path.exists():
                 print(f"{tag} já gravado, pulando", flush=True)
                 continue
             model, best_epoch, history = train_one(
                 cand, shapes[name]["formas"], fit, internal, seed, device, cfg,
-                log=lambda m, tag=tag: print(f"{tag} {m}", flush=True))
+                log=lambda m, tag=tag: print(f"{tag} {m}", flush=True), coco_prefix=coco)
             preds = predict(model, make_loader(DetectorDataset(held, False), cfg, device, False),
                             device)
-            meta = {"candidato": name, "lote_avaliado": lot, "semente": seed,
+            meta = {"candidato": folder, "lote_avaliado": lot, "semente": seed,
                     "melhor_epoca": best_epoch, "historico": history, "treino": asdict(cfg),
-                                       "sha_caixas": BOXES_SHA256, "sha_formas": shapes_sha,
-                    "corte_confianca": SCORE_THRESH}
+                    "sha_caixas": BOXES_SHA256, "sha_formas": shapes_sha,
+                    "corte_confianca": SCORE_THRESH, **weights_meta}
             save_part(path, [p.pseudonym for p in held], preds, meta,
                       {k: v.cpu() for k, v in model.state_dict().items()})
             print(f"{tag} gravado; melhor época {best_epoch}", flush=True)
@@ -127,6 +152,9 @@ if __name__ == "__main__":  # obrigatório no Windows: os processos auxiliares r
         run_timing(device)
     elif len(args) == 2 and args[0] == "treinar":
         run_training(args[1], device)
+    elif len(args) == 3 and args[0] == "treinar" and args[2] == "coco":
+        run_training(args[1], device, coco=True)
     else:
-        raise SystemExit("Uso: python -m training.run_detector {tempo | treinar S1|F1|F2}")
+        raise SystemExit("Uso: python -m training.run_detector "
+                         "{tempo | treinar S1|F1|F2 | treinar S1 coco}")
     print("Concluído.")

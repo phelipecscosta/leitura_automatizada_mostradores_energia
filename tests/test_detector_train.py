@@ -70,3 +70,25 @@ def test_save_part_writes_weights_next_to_the_predictions(tmp_path):
     rd.save_part(path, [], [], {}, {"w": torch.ones(2)})
     assert torch.equal(torch.load(path.with_suffix(".pt"), weights_only=True)["w"], torch.ones(2))
     assert not list(tmp_path.glob("*.tmp"))
+
+def test_setup_with_coco_prefix_changes_only_the_prefix(monkeypatch):
+    """Ablação pareada: com a mesma semente, só o prefixo da espinha muda."""
+    import torch
+    from training import detector_coco as coco
+    cand = CANDIDATES[0]
+    donor = cand.build(SHAPES).state_dict()
+    source = {k: torch.full_like(v, 7.0) if v.is_floating_point() else v for k, v in donor.items()}
+    monkeypatch.setattr(coco, "coco_state", lambda: source)  # nenhum download
+    plain = dt.setup(cand, SHAPES, CFG, 4, 0, "cpu", pretrained=False)["model"].state_dict()
+    ablated = dt.setup(cand, SHAPES, CFG, 4, 0, "cpu", pretrained=False,
+                       coco_prefix=True)["model"].state_dict()
+    keys = set(coco.prefix_keys(plain, source))
+    assert keys and all(torch.equal(ablated[k], source[k]) for k in keys)
+    assert all(torch.equal(ablated[k], plain[k]) for k in plain if k not in keys)
+
+
+def test_variant_name_only_for_s1():
+    assert rd.variant_name("S1", False) == "S1" and rd.variant_name("S1", True) == "S1_coco"
+    assert rd.variant_name("F1", False) == "F1"
+    with pytest.raises(SystemExit):
+        rd.variant_name("F1", True)

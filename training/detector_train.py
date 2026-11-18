@@ -62,11 +62,17 @@ def predict(model, loader: DataLoader, device: str) -> list[dict]:
 
 
 def setup(cand: Candidate, shapes, cfg: DetectorTrainConfig, n_train: int, run_seed: int,
-          device: str, pretrained: bool = True) -> dict:
+          device: str, pretrained: bool = True, coco_prefix: bool = False) -> dict:
     """Modelo, otimizador e cronograma de uma execução; o cronograma cobre sempre
     cfg.max_epochs épocas, também no treino final."""
     torch.manual_seed(run_seed)
-    model = cand.build(shapes, pretrained_backbone=pretrained).to(device)
+    model = cand.build(shapes, pretrained_backbone=pretrained)
+    if coco_prefix:  # ablação COCO (protocolo, 1.4; revisão R4, A-a)
+        # Importação aqui: só a ablação precisa dos pesos COCO. A carga não consome o
+        # gerador aleatório, então o resto da inicialização é igual ao do S1 (pareado).
+        from training.detector_coco import coco_state, load_prefix
+        load_prefix(model, coco_state())
+    model = model.to(device)
     lr, weight_decay = RECIPES[cand.name]
     params = [p for p in model.parameters() if p.requires_grad]
     optimizer = torch.optim.SGD(params, lr=lr, momentum=cfg.momentum, weight_decay=weight_decay)
@@ -103,13 +109,14 @@ def train_epoch(run: dict, loader: DataLoader, dataset: DetectorDataset, epoch: 
 
 def train_one(cand: Candidate, shapes, fit: list[DetectorPhoto], internal: list[DetectorPhoto],
               run_seed: int, device: str, cfg: DetectorTrainConfig = DetectorTrainConfig(),
-              log: Callable[[str], None] = print, pretrained: bool = True):
+              log: Callable[[str], None] = print, pretrained: bool = True,
+              coco_prefix: bool = False):
     """Treina até cfg.max_epochs épocas e devolve (modelo na melhor época, melhor época,
     histórico de (época, perda, métrica interna, segundos))."""
     fit_set, internal_set = DetectorDataset(fit, True, run_seed), DetectorDataset(internal, False)
     fit_loader = make_loader(fit_set, cfg, device, True, run_seed)
     internal_loader = make_loader(internal_set, cfg, device, False)
-    run = setup(cand, shapes, cfg, len(fit), run_seed, device, pretrained)
+    run = setup(cand, shapes, cfg, len(fit), run_seed, device, pretrained, coco_prefix)
     best, best_epoch, best_state, history = -1.0, 0, None, []
     for epoch in range(1, cfg.max_epochs + 1):
         start = time.perf_counter()
