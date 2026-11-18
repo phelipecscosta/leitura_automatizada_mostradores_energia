@@ -1,0 +1,33 @@
+"""Testes da medida da seleção dos campos (revisão R4, K2)."""
+import numpy as np
+
+from meter_reader.fields import AMBIGUOUS_MANY, FieldSelection
+from training import detector_fields_eval as fe
+
+TOP, MID = [100, 50, 200, 80], [100, 100, 200, 130]
+GT_BOXES, GT_LABELS = [TOP, MID], [2, 3]  # consumo em cima, kvarh no meio
+
+
+def test_outcome_hit_and_kvarh_error():
+    hit = FieldSelection("ciclometrico", np.array(TOP, float), None)
+    wrong = FieldSelection("ciclometrico", np.array(MID, float), None)
+    assert fe.photo_outcome(hit, GT_BOXES, GT_LABELS) == "acerto"
+    assert fe.photo_outcome(wrong, GT_BOXES, GT_LABELS) == "erro_kvarh"
+
+
+def test_outcome_ambiguous_and_other():
+    amb = FieldSelection("ciclometrico", None, None, AMBIGUOUS_MANY)
+    none = FieldSelection(None, None, None)
+    off = FieldSelection("ciclometrico", np.array([0, 0, 10, 10], float), None)
+    assert fe.photo_outcome(amb, GT_BOXES, GT_LABELS) == AMBIGUOUS_MANY
+    assert fe.photo_outcome(none, GT_BOXES, GT_LABELS) == "outro"
+    assert fe.photo_outcome(off, GT_BOXES, GT_LABELS) == "outro"
+
+
+def test_choose_cut_breaks_ties_with_the_larger_cut():
+    curve = {0.1: {"acerto": 0.8}, 0.2: {"acerto": 0.9}, 0.3: {"acerto": 0.9}, 0.4: {"acerto": 0.7}}
+    assert fe.choose_cut(curve) == 0.3
+
+
+def test_grid_is_fixed():
+    assert fe.CUT_GRID[0] == 0.01 and fe.CUT_GRID[-1] == 0.95 and len(fe.CUT_GRID) == 95
