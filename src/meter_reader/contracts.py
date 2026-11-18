@@ -35,7 +35,7 @@ class Status(StrEnum):
 
 
 class Reason(StrEnum):
-    """Motivo de rejeição ou verificação (spec v14, 2.5, item 1.6).
+    """Motivo de rejeição ou verificação (spec v18, 2.5, item 1.6).
 
     A ordem de declaração é a ordem do pipeline e decide qual motivo
     prevalece quando mais de um se aplica (spec 2.5, item 1.7). Não reordene.
@@ -48,6 +48,7 @@ class Reason(StrEnum):
     MULTIPLE_METERS = "Múltiplos medidores"
     NOT_IN_PARAMETERS = "Não listado na tabela fornecida com os parâmetros"
     TYPE_MISMATCH = "Tipo divergente entre triagem e detector"
+    CONSUMPTION_NOT_IDENTIFIED = "Mostrador de leitura de consumo não identificado"
     EXTRACTION_FAILURE = "Falha na extração"
     LOW_CONFIDENCE = "Confiança baixa"
     METER_NUMBER_MISMATCH = "Número do medidor divergente do registro"
@@ -98,6 +99,9 @@ class Rejection:
 # Pares definidos pela spec (2.5, itens 2.3 e 2.4)
 REJECTION_CORRUPTED = Rejection(Status.REJECTED_CORRUPTED, Reason.CORRUPTED)
 REJECTION_NOT_LISTED = Rejection(Status.REJECTED_NOT_LISTED, Reason.NOT_IN_EXTRACTION)
+# Segunda porta do indeterminado: o detector não localizou nenhum campo acima do
+# limiar, ou nenhuma caixa (spec v17, 2.5, item 10.2)
+REJECTION_NO_FIELD = Rejection(Status.REJECTED_LOW_QUALITY, Reason.INDETERMINATE_TYPE)
 
 # Rejeições da triagem por classe do produto (spec v12, 2.5, itens 6 e 7).
 # Digital e ciclométrico não são rejeitados: seguem para o detector.
@@ -210,12 +214,13 @@ class PairingResult:
 # nenhum módulo consegue gravar um status com o motivo de outro.
 # "Tipo divergente entre triagem e detector" vai para verificação
 # (lado seguro; a spec não fixa o status desse motivo).
+# "Mostrador de leitura de consumo não identificado" (regra do kvarh, spec 10.1) também.
 STATUS_REASONS: dict[Status, frozenset[Reason]] = {
     Status.APPROVED: frozenset(),
     Status.NEEDS_REVIEW: frozenset({
-        Reason.TYPE_MISMATCH, Reason.LOW_CONFIDENCE, Reason.METER_NUMBER_MISMATCH,
-        Reason.READING_MISMATCH, Reason.WRONG_FUNCTION, Reason.HIGH_CRITICALITY,
-        Reason.OUT_OF_PARAMETERS,
+        Reason.TYPE_MISMATCH, Reason.CONSUMPTION_NOT_IDENTIFIED, Reason.LOW_CONFIDENCE,
+        Reason.METER_NUMBER_MISMATCH, Reason.READING_MISMATCH, Reason.WRONG_FUNCTION,
+        Reason.HIGH_CRITICALITY, Reason.OUT_OF_PARAMETERS,
     }),
     Status.REJECTED_OTHER: frozenset({Reason.NOT_A_METER}),
     Status.REJECTED_LOW_QUALITY: frozenset({Reason.INDETERMINATE_TYPE, Reason.EXTRACTION_FAILURE}),

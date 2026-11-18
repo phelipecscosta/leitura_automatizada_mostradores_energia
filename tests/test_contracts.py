@@ -26,6 +26,7 @@ SPEC_REASONS_IN_PIPELINE_ORDER = [
     "Múltiplos medidores",
     "Não listado na tabela fornecida com os parâmetros",
     "Tipo divergente entre triagem e detector",
+    "Mostrador de leitura de consumo não identificado",
     "Falha na extração",
     "Confiança baixa",
     "Número do medidor divergente do registro",
@@ -279,3 +280,11 @@ def test_reading_must_be_non_negative_int(reading) -> None:
 def test_wrong_function_rejects_non_digits() -> None:
     with pytest.raises(ValueError):
         wrong_function("1O3")
+
+def test_new_reason_goes_to_review_after_type_mismatch() -> None:
+    from meter_reader.contracts import STATUS_REASONS, REJECTION_NO_FIELD
+    order = list(Reason)
+    assert order.index(Reason.CONSUMPTION_NOT_IDENTIFIED) == order.index(Reason.TYPE_MISMATCH) + 1
+    assert Reason.CONSUMPTION_NOT_IDENTIFIED in STATUS_REASONS[Status.NEEDS_REVIEW]
+    assert (REJECTION_NO_FIELD.status, REJECTION_NO_FIELD.reason) == (
+        Status.REJECTED_LOW_QUALITY, Reason.INDETERMINATE_TYPE)
