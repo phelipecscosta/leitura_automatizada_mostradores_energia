@@ -3,7 +3,7 @@
     meter-reader analisar --fotos <pasta> --base <BaseExtracao_DDMMAAAA_Dia.csv> [--complementar]
 
 Sequência: lê e valida o BaseExtracao inteiro -> confere a pasta das fotos e
-o lote -> carrega a triagem -> decide a linha de cada imagem -> grava a
+o lote -> carrega a triagem e o detector -> decide a linha de cada imagem -> grava a
 planilha -> move as imagens -> lista as cópias antigas -> exibe o resumo.
 A planilha é gravada antes da movimentação: se mover falhar no meio, as fotos
 que ficaram na origem são refeitas com --complementar.
@@ -24,13 +24,16 @@ from datetime import datetime
 from pathlib import Path
 
 from meter_reader import folders
-from meter_reader.config import ConfigError, get_output_dir, get_triage_artifact, inside_data_dir
+from meter_reader.config import (ConfigError, get_detector_artifact, get_output_dir,
+                                 get_triage_artifact, inside_data_dir)
 from meter_reader.contracts import ControlRow
 from meter_reader.control_sheet import (PARAMETERS_DISABLED, ControlFileError, ExecutionRecord,
                                         RunKind, control_file_name, save_control)
 from meter_reader.extraction import ExtractionFileError, read_extraction
 from meter_reader.feedback import Summary, format_feedback
-from meter_reader.pipeline import ProvisionalReading, ReadingStage, TriageStage, process_images
+from meter_reader.detector import PRODUCT_DETECTOR_SHA256, DetectorArtifactError, load_detector
+from meter_reader.pipeline import (DetectorStage, ProvisionalReading, ReaderStage, TriageStage,
+                                   process_images)
 from meter_reader.triage import PRODUCT_TRIAGE_SHA256, TriageArtifactError, load_triage
 
 EXIT_OK, EXIT_INPUT, EXIT_ALREADY_PROCESSED = 0, 2, 3
@@ -89,7 +92,8 @@ def check_source(source: Path, output_root: Path) -> None:
 
 def analyze(photos_dir: Path | str, base_path: Path | str, *, complementary: bool,
             output_root: Path, triage_factory: Callable[[], TriageStage],
-            triage_version: str, reading: ReadingStage,
+            triage_version: str, detector_factory: Callable[[], DetectorStage],
+            detector_version: str, reader: ReaderStage,
             now: Callable[[], datetime] = datetime.now) -> RunResult:
     """Executa um processamento completo ou complementar."""
     batch = read_extraction(base_path)  # falha cedo, antes de tocar em qualquer foto
@@ -107,11 +111,12 @@ def analyze(photos_dir: Path | str, base_path: Path | str, *, complementary: boo
     if not images:
         raise InputError("A pasta indicada não contém imagens.")
 
-    rows = process_images(images, batch, triage_factory(), reading)
+    rows = process_images(images, batch, triage_factory(), detector_factory(), reader)
 
     kind = RunKind.COMPLEMENTARY if exists else RunKind.FULL
     record = ExecutionRecord(now(), kind, EXECUTION_PROFILE,
-                             f"triagem {triage_version}; leitura {reading.version}",
+                             f"triagem {triage_version}; detector {detector_version}; "
+                             f"leitura {reader.version}",
                              PARAMETERS_DISABLED)
     lot.mkdir(parents=True, exist_ok=True)
     save_control(control_path, rows, record)  # primeiro grava a planilha
@@ -128,7 +133,7 @@ def analyze(photos_dir: Path | str, base_path: Path | str, *, complementary: boo
         Summary.from_rows(rows), control_path, updated=exists, parameters=PARAMETERS_DISABLED,
         stale_by_folder=folders.stale_by_folder(stale, lot),
         stale_list=None if stale_file is None else stale_file.name,
-        provisional=isinstance(reading, ProvisionalReading))
+        provisional=isinstance(reader, ProvisionalReading))
     return RunResult(rows, control_path, kind, feedback)
 
 
@@ -151,16 +156,20 @@ def main(argv: list[str] | None = None) -> int:
     start = time.perf_counter()
     try:
         output_root = get_output_dir()
-        artifact = get_triage_artifact()
+        triage_artifact = get_triage_artifact()
+        detector_artifact = get_detector_artifact()
         result = analyze(
             args.fotos, args.base, complementary=args.complementar, output_root=output_root,
-            triage_factory=lambda: load_triage(artifact, PRODUCT_TRIAGE_SHA256),
-            triage_version=f"C4 {PRODUCT_TRIAGE_SHA256[:12]}", reading=ProvisionalReading())
+            triage_factory=lambda: load_triage(triage_artifact, PRODUCT_TRIAGE_SHA256),
+            triage_version=f"C4 {PRODUCT_TRIAGE_SHA256[:12]}",
+            detector_factory=lambda: load_detector(detector_artifact, PRODUCT_DETECTOR_SHA256),
+            detector_version=f"S1_coco {PRODUCT_DETECTOR_SHA256[:12]}",
+            reader=ProvisionalReading())
     except AlreadyProcessedError as exc:
         print(exc, file=sys.stderr)
         return EXIT_ALREADY_PROCESSED
     except (ConfigError, ExtractionFileError, ControlFileError, TriageArtifactError,
-            InputError) as exc:
+            DetectorArtifactError, InputError) as exc:
         print(f"Erro: {exc}", file=sys.stderr)
         return EXIT_INPUT
     elapsed = time.perf_counter() - start

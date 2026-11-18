@@ -16,6 +16,7 @@ DATA_DIR_VAR = "METER_READER_DATA_DIR"
 WORK_DIR_VAR = "METER_READER_WORK_DIR"
 OUTPUT_DIR_VAR = "METER_READER_OUTPUT_DIR"
 TRIAGE_ARTIFACT_VAR = "METER_READER_TRIAGE_ARTIFACT"
+DETECTOR_ARTIFACT_VAR = "METER_READER_DETECTOR_ARTIFACT"
 
 
 class ConfigError(RuntimeError):
@@ -110,4 +111,11 @@ def get_triage_artifact() -> Path:
     path = _read_path(TRIAGE_ARTIFACT_VAR)
     if not path.is_file():
         raise ConfigError(f"{TRIAGE_ARTIFACT_VAR} aponta para um arquivo inexistente.")
+    return path
+
+def get_detector_artifact() -> Path:
+    """Retorna o caminho do artefato do detector (o SHA-256 é conferido ao carregar)."""
+    path = _read_path(DETECTOR_ARTIFACT_VAR)
+    if not path.is_file():
+        raise ConfigError(f"{DETECTOR_ARTIFACT_VAR} aponta para um arquivo inexistente.")
     return path

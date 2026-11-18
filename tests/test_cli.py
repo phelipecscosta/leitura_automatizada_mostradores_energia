@@ -29,6 +29,16 @@ class FakeTriage:
             return TriageResult((0, 0, 0, 0, 1), 1.0, TRIAGE_REJECTIONS["outros"], None)
         return TriageResult((1, 0, 0, 0, 0), 0.0, None, "digital")
 
+class FakeDetector:
+    """Passa todas as fotos, com um display digital (o tipo da FakeTriage)."""
+
+    def predict(self, path: Path):
+        import numpy as np
+        from meter_reader.detector import DetectionResult
+        from meter_reader.fields import FieldSelection
+        box = np.array([[10, 10, 40, 20]], np.float32)
+        return DetectionResult(box, np.array([0.9], np.float32), np.array([1]), 0.9, True,
+                               "digital", FieldSelection("digital", box[0], None))
 
 def _image(path: Path) -> None:
     rng = np.random.default_rng(0)
@@ -58,7 +68,8 @@ def _run(photos, out, complementary=False, calls=None):
 
     return cli.analyze(photos, photos / BASE_NAME, complementary=complementary,
                        output_root=out, triage_factory=factory, triage_version="C4 teste",
-                       reading=ProvisionalReading(), now=lambda: datetime(2026, 11, 10, 16))
+                       detector_factory=FakeDetector, detector_version="teste",
+                       reader=ProvisionalReading(), now=lambda: datetime(2026, 11, 10, 16))
 
 
 def test_full_run_moves_saves_and_reports(env) -> None:
@@ -75,7 +86,7 @@ def test_full_run_moves_saves_and_reports(env) -> None:
     assert [p.name for p in photos.iterdir()] == [BASE_NAME]
     rows, executions = read_control(result.control_path)
     assert len(rows) == 4 and len(executions) == 1
-    assert executions[0].model_versions == "triagem C4 teste; leitura provisorio"
+    assert executions[0].model_versions == "triagem C4 teste; detector teste; leitura provisorio"
     assert "gerada" in result.feedback and "Leitura: provisória" in result.feedback
     assert "medidor1" not in result.feedback
 
@@ -126,7 +137,8 @@ def test_source_inside_output_is_refused(env) -> None:
     with pytest.raises(cli.InputError, match="pasta de saída"):
         cli.analyze(inside, inside / BASE_NAME, complementary=False, output_root=out,
                     triage_factory=FakeTriage, triage_version="v",
-                    reading=ProvisionalReading())
+                    detector_factory=FakeDetector, detector_version="v",
+                    reader=ProvisionalReading())
 
 
 def test_source_inside_original_base_is_refused(env, monkeypatch) -> None:
@@ -168,6 +180,8 @@ def configured(env, monkeypatch):
     monkeypatch.setattr(cli, "get_output_dir", lambda: out)
     monkeypatch.setattr(cli, "get_triage_artifact", lambda: Path("triagem.pt"))
     monkeypatch.setattr(cli, "load_triage", lambda path, sha: FakeTriage())
+    monkeypatch.setattr(cli, "get_detector_artifact", lambda: Path("detector.pt"))
+    monkeypatch.setattr(cli, "load_detector", lambda path, sha: FakeDetector())
     return photos, out
 
 
