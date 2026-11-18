@@ -76,6 +76,95 @@ def ambiguity_frequency(photos, preds, cut: float, gate: float) -> dict:
     return {"fotos_que_passam": n,
             **{a: {"fracao": weights[a] / total, "fotos": counts[a]} for a in AMBIGUOUS}}
 
+# ---------------------------------------------------------------------
+# Diagnóstico do grupo "outro" (exploratório, só desenvolvimento; não muda a regra da R4)
+# ---------------------------------------------------------------------
+
+DISPLAY_LABELS = (1, 2, 3)
+CAUSES = ("o1_familia_digital", "o2_abaixo_do_corte", "o3_nao_detectado",
+          "o4_deslocada", "o5_outro_lugar")
+SHIFTED_IOU = 0.3  # o4: IoU entre 0,3 e 0,5 com o consumo anotado
+
+
+def _consumption_gt(gt_boxes, gt_labels) -> np.ndarray:
+    return np.asarray([b for b, lab in zip(gt_boxes, gt_labels) if lab == CYCLO],
+                      dtype=float).reshape(-1, 4)
+
+
+def _inside(box: np.ndarray, gt: np.ndarray) -> float:
+    """Fração da caixa anotada `gt` que fica dentro de `box`."""
+    w = max(0.0, min(box[2], gt[2]) - max(box[0], gt[0]))
+    h = max(0.0, min(box[3], gt[3]) - max(box[1], gt[1]))
+    return w * h / max((gt[2] - gt[0]) * (gt[3] - gt[1]), 1e-12)
+
+
+def detected_anywhere(pred: dict, gt: np.ndarray) -> bool:
+    """Alguma caixa prevista de display, de qualquer classe e confiança, cobre algum
+    consumo anotado com IoU >= 0,5?"""
+    keep = np.isin(np.asarray(pred["labels"]), DISPLAY_LABELS)
+    boxes = np.asarray(pred["boxes"], float).reshape(-1, 4)[keep]
+    return len(boxes) > 0 and len(gt) > 0 and bool((iou_matrix(gt, boxes) >= IOU_MATCH).any())
+
+
+def other_cause(selection: FieldSelection, pred: dict, gt_boxes,
+                gt_labels) -> tuple[str, float | None]:
+    """Causa de uma foto do grupo "outro" (CAUSES) e, em o4, a fração do consumo anotado
+    dentro da região escolhida."""
+    gt = _consumption_gt(gt_boxes, gt_labels)
+    if selection.family == "digital":
+        return "o1_familia_digital", None
+    if selection.consumption is None:
+        return ("o2_abaixo_do_corte" if detected_anywhere(pred, gt) else "o3_nao_detectado"), None
+    ious = iou_matrix(np.asarray(selection.consumption, float)[None], gt)[0]
+    best = int(np.argmax(ious))
+    if ious[best] >= SHIFTED_IOU:
+        return "o4_deslocada", _inside(np.asarray(selection.consumption, float), gt[best])
+    return "o5_outro_lugar", None
+
+
+def diagnose() -> None:
+    """Separa o grupo "outro" da semente 0, no corte adotado, pelas causas de CAUSES."""
+    from meter_reader.config import get_work_dir
+    from training.detector_ablation import load_seeds
+    from training.detector_dataset import load_detector_photos
+    from training.run_detector import OUTPUT_FOLDER
+
+    work_dir = get_work_dir()
+    cut = json.loads((work_dir / OUTPUT_FOLDER / SUMMARY_NAME)
+                     .read_text(encoding="utf-8"))["corte_adotado"]
+    photos = [p for p in load_detector_photos() if p.subset == "desenvolvimento"]
+    lots = sorted({p.lot for p in photos})
+    preds = load_seeds(work_dir, FOLDER, photos, lots)[0][0]  # semente 0
+    pop = [i for i, p in enumerate(photos) if CYCLO in p.labels]
+    total = sum(photos[i].weight for i in pop)
+
+    found = sum(photos[i].weight for i in pop
+                if detected_anywhere(preds[i], _consumption_gt(photos[i].boxes, photos[i].labels)))
+    print(f"Sanidade: consumo coberto por alguma caixa de display (qualquer confiança) "
+          f"em {100 * found / total:.2f}% das {len(pop)} fotos")
+
+    weights, counts, inside, multi = Counter(), Counter(), [], 0
+    for i in pop:
+        photo, pred = photos[i], preds[i]
+        sel = select_fields(pred["boxes"], pred["scores"], pred["labels"], cut)
+        if photo_outcome(sel, photo.boxes, photo.labels) != "outro":
+            continue
+        cause, frac = other_cause(sel, pred, photo.boxes, photo.labels)
+        weights[cause] += photo.weight
+        counts[cause] += 1
+        if frac is not None:
+            inside.append(frac)
+        if cause == "o5_outro_lugar" and len(_consumption_gt(photo.boxes, photo.labels)) > 1:
+            multi += 1
+    print(f"Grupo 'outro' no corte {cut:.2f} (semente 0): "
+          f"{100 * sum(weights.values()) / total:.2f}% ({sum(counts.values())} fotos)")
+    for cause in CAUSES:
+        print(f"  {cause}: {100 * weights[cause] / total:.2f}% ({counts[cause]} fotos)")
+    if inside:
+        print(f"  o4, fração do consumo anotado dentro da região: p5 "
+              f"{np.quantile(inside, 0.05):.2f}, mediana {np.median(inside):.2f}")
+    print(f"  o5 em fotos com mais de um consumo anotado: {multi} foto(s)")
+
 
 def main() -> None:
     from meter_reader.config import get_work_dir
@@ -124,4 +213,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    diagnose() if sys.argv[1:] == ["diagnostico"] else main()

@@ -31,3 +31,29 @@ def test_choose_cut_breaks_ties_with_the_larger_cut():
 
 def test_grid_is_fixed():
     assert fe.CUT_GRID[0] == 0.01 and fe.CUT_GRID[-1] == 0.95 and len(fe.CUT_GRID) == 95
+
+def _pred(rows):
+    return {"boxes": np.array([r[0] for r in rows], float).reshape(-1, 4),
+            "scores": np.array([r[1] for r in rows], float),
+            "labels": np.array([r[2] for r in rows], int)}
+
+
+def test_other_cause_digital_family():
+    sel = FieldSelection("digital", np.array(TOP, float), None)
+    assert fe.other_cause(sel, _pred([(TOP, 0.9, 1)]), GT_BOXES, GT_LABELS)[0] == "o1_familia_digital"
+
+
+def test_other_cause_below_cut_and_not_detected():
+    none = FieldSelection(None, None, None)
+    assert fe.other_cause(none, _pred([(TOP, 0.05, 2)]), GT_BOXES, GT_LABELS)[0] == "o2_abaixo_do_corte"
+    assert fe.other_cause(none, _pred([([0, 0, 5, 5], 0.05, 2)]), GT_BOXES,
+                          GT_LABELS)[0] == "o3_nao_detectado"
+
+
+def test_other_cause_shifted_and_elsewhere():
+    shifted = np.array([100, 60, 200, 95], float)  # IoU com TOP entre 0,3 e 0,5
+    cause, frac = fe.other_cause(FieldSelection("ciclometrico", shifted, None), _pred([]),
+                                 GT_BOXES, GT_LABELS)
+    assert cause == "o4_deslocada" and 0.0 < frac < 1.0
+    far = FieldSelection("ciclometrico", np.array([300, 300, 400, 330], float), None)
+    assert fe.other_cause(far, _pred([]), GT_BOXES, GT_LABELS)[0] == "o5_outro_lugar"
