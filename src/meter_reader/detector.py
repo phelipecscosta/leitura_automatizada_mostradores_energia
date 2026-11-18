@@ -1,9 +1,10 @@
-"""Detector de campos do produto (spec v16, 2.5, itens 10.1 e 10.2; ET5b).
+"""Detector de campos do produto (spec v17, 2.5, itens 10 a 12; ET5b e ET5c).
 
-Nesta versão (T5b.3): as classes do detector, o gerador de âncoras com as
-formas escolhidas pelos dados e a montagem das duas arquiteturas candidatas do
-torchvision (SSDlite e Faster R-CNN, ambas com a MobileNetV3-Large). A carga do
-artefato e a decisão da segunda porta entram na T5b.8.
+Classes do detector, gerador de âncoras com as formas escolhidas pelos dados,
+montagem do SSDlite com a MobileNetV3-Large (o S1) e, a partir da ET5c, a entrada,
+a carga do artefato e a decisão: segunda porta, família do Validador 2 e seleção
+dos campos (meter_reader.fields). A montagem do Faster R-CNN, que não entra no
+produto (E82), sai daqui na T5c.6.
 """
 
 from __future__ import annotations
@@ -23,6 +24,16 @@ from torchvision.models.detection.ssd import SSD
 from torchvision.models.detection.ssdlite import SSDLiteHead, _normal_init
 from torchvision.models.detection.ssdlite import _mobilenet_extractor as _ssd_extractor
 from torchvision.ops import misc as misc_nn_ops
+
+import hashlib
+from dataclasses import dataclass, field
+from pathlib import Path
+
+import numpy as np
+from PIL import Image
+from torchvision.transforms import functional as TF
+
+from meter_reader.preprocess import enhance
 
 # Classes de caixa, na ordem das saídas do detector (02_dataset.md, seção 5.1).
 # O rótulo 0 é o fundo; a classe i do detector é DETECTOR_CLASSES[i - 1].
@@ -153,3 +164,94 @@ def meter_family(labels, scores, threshold: float) -> str | None:
         if score >= threshold and label in _FAMILY and score > best:
             best, family = score, _FAMILY[label]
     return family
+
+# ---------------------------------------------------------------------
+# Entrada, artefato e decisão do detector do produto (ET5c, T5c.4)
+# ---------------------------------------------------------------------
+
+def load_input(path: Path) -> torch.Tensor:
+    """Foto em disco -> tensor (3, A, L) em [0, 1], com o realce fixo da triagem
+    (protocolo do detector, 1.5; E19, E33). A normalização é a do próprio SSD.
+    Implementação única, usada também pelo treino (E17)."""
+    with Image.open(path) as image:
+        return TF.to_tensor(enhance(image))
+
+
+def photo_score(scores) -> float:
+    """Escore da foto para a segunda porta: a maior confiança entre as caixas, de
+    qualquer classe; 0 sem nenhuma caixa (spec 10.3)."""
+    scores = np.asarray(scores)
+    return float(scores.max()) if len(scores) else 0.0
+
+
+ARTIFACT_FORMAT = 1
+
+# SHA-256 do único artefato do detector aceito por esta versão do produto (E72).
+# Fica no código, e não no .env; muda junto com o artefato, num commit próprio.
+PRODUCT_DETECTOR_SHA256 = "a_definir_no_commit_do_artefato"
+
+
+class DetectorArtifactError(ValueError):
+    """Artefato do detector inválido, alterado ou incompatível com este produto."""
+
+
+@dataclass(frozen=True)
+class DetectionResult:
+    """Decisão do detector para uma foto (spec 2.5, itens 10 a 12)."""
+
+    boxes: np.ndarray            # (n, 4) em pixels da foto, (x0, y0, x1, y1)
+    scores: np.ndarray           # (n,)
+    labels: np.ndarray           # (n,), de 1 a 4, na ordem de DETECTOR_CLASSES
+    score: float                 # escore da foto (maior confiança)
+    passes_gate: bool            # False: "Indeterminação do tipo de medidor" (10.2)
+    family: str | None           # Validador 2 (item 12): família no limiar da porta
+    fields: object | None        # meter_reader.fields.FieldSelection; None se não passa
+
+
+@dataclass(frozen=True)
+class DetectorModel:
+    """Modelo carregado: o S1 em modo de avaliação, o limiar da porta e o corte dos campos."""
+
+    model: SSD
+    gate_threshold: float
+    field_cut: float
+    info: dict = field(default_factory=dict)  # procedência gravada no artefato
+
+    def decide(self, boxes, scores, labels) -> DetectionResult:
+        """Porta, família e campos a partir das caixas de uma foto."""
+        from meter_reader.fields import select_fields  # aqui: fields importa este módulo
+
+        boxes = np.asarray(boxes, dtype=np.float32).reshape(-1, 4)
+        scores = np.asarray(scores, dtype=np.float32)
+        labels = np.asarray(labels, dtype=np.int64)
+        score = photo_score(scores)
+        passes = len(scores) > 0 and score >= self.gate_threshold  # sem caixa: rejeitada
+        if not passes:
+            return DetectionResult(boxes, scores, labels, score, False, None, None)
+        return DetectionResult(boxes, scores, labels, score, True,
+                               meter_family(labels, scores, self.gate_threshold),
+                               select_fields(boxes, scores, labels, self.field_cut))
+
+    def predict(self, path: Path) -> DetectionResult:
+        """Uma foto em disco, em CPU: entrada, S1 e decisão."""
+        with torch.no_grad():
+            out = self.model([load_input(Path(path))])[0]
+        return self.decide(out["boxes"].numpy(), out["scores"].numpy(), out["labels"].numpy())
+
+
+def load_detector(path: Path, expected_sha256: str | None = None) -> DetectorModel:
+    """Carrega o artefato do detector em CPU, conferindo o SHA-256 (se informado) e o
+    contrato (formato e ordem das classes)."""
+    path = Path(path)
+    if expected_sha256 is not None:
+        if hashlib.sha256(path.read_bytes()).hexdigest() != expected_sha256:
+            raise DetectorArtifactError("O artefato do detector não corresponde ao SHA-256 esperado.")
+    data = torch.load(path, map_location="cpu", weights_only=True)
+    if data.get("formato") != ARTIFACT_FORMAT:
+        raise DetectorArtifactError("Formato de artefato do detector desconhecido.")
+    if tuple(data["classes"]) != DETECTOR_CLASSES:
+        raise DetectorArtifactError("As classes do artefato não seguem a ordem DETECTOR_CLASSES.")
+    model = build_ssd(data["formas"])
+    model.load_state_dict(data["pesos"])
+    return DetectorModel(model.eval(), float(data["limiar_porta"]), float(data["corte_campos"]),
+                         dict(data["info"]))

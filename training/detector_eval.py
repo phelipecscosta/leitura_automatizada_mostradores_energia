@@ -248,9 +248,10 @@ MIN_THRESHOLD = float(np.nextafter(0.0, 1.0))  # rejeita só as fotos sem nenhum
 
 
 def photo_score(pred: dict) -> float:
-    """Escore da foto: a maior confiança entre as caixas detectadas, de qualquer classe."""
-    scores = np.asarray(pred["scores"])
-    return float(scores.max()) if len(scores) else 0.0
+    """Escore da foto: a maior confiança entre as caixas detectadas, de qualquer classe
+    (implementação do produto, E17)."""
+    from meter_reader.detector import photo_score as product_photo_score
+    return product_photo_score(pred["scores"])
 
 
 def gate_curve(scores: np.ndarray, has_field: np.ndarray, weights: np.ndarray,

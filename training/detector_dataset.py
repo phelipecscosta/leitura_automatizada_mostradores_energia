@@ -7,20 +7,14 @@ torchvision: caixas (x0, y0, x1, y1) em pixels da foto original e rótulos de 1 
 mostram só contagens, nunca nomes nem caminhos.
 """
 from __future__ import annotations
-
 from dataclasses import dataclass, field
 from pathlib import Path
-
 import numpy as np
 import torch
-from PIL import Image
 from torch.utils.data import Dataset
 from torchvision import tv_tensors
 from torchvision.transforms import v2
-from torchvision.transforms.functional import to_tensor
-
-from meter_reader.detector import DETECTOR_CLASSES
-from meter_reader.preprocess import enhance
+from meter_reader.detector import DETECTOR_CLASSES, load_input
 from training.box_labels import Box
 from training.detector_eval import MIN_FIELD_SIDE
 from training.finetune import epoch_seed
@@ -143,12 +137,9 @@ def augment(image: torch.Tensor, target: dict, seed: int) -> tuple[torch.Tensor,
     return out_image.as_subclass(torch.Tensor), {"boxes": out["boxes"].as_subclass(torch.Tensor),
                                                  "labels": out["labels"]}
 
-
 def load_image(path: Path) -> torch.Tensor:
-    """Foto com o realce fixo da triagem, em [0, 1] (protocolo, 1.5; E19, E33)."""
-    with Image.open(path) as image:
-        return to_tensor(enhance(image))
-
+    """Foto com o realce fixo da triagem, em [0, 1]: a entrada do produto (E17)."""
+    return load_input(path)
 
 class DetectorDataset(Dataset):
     """Fotos e alvos do detector; no treino, uma vista nova a cada época."""
