@@ -24,7 +24,8 @@ from dataclasses import dataclass
 import numpy as np
 import torch
 
-from meter_reader.detector import LOW_LATENCY_RPN, build_frcnn, build_ssd
+from meter_reader.detector import build_ssd
+from training.detector_frcnn import LOW_LATENCY_RPN, build_frcnn
 
 KMEANS_SEED = 0
 KMEANS_ITERS = 300

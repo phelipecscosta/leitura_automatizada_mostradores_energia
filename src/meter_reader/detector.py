@@ -3,8 +3,8 @@
 Classes do detector, gerador de âncoras com as formas escolhidas pelos dados,
 montagem do SSDlite com a MobileNetV3-Large (o S1) e, a partir da ET5c, a entrada,
 a carga do artefato e a decisão: segunda porta, família do Validador 2 e seleção
-dos campos (meter_reader.fields). A montagem do Faster R-CNN, que não entra no
-produto (E82), sai daqui na T5c.6.
+dos campos (meter_reader.fields). A montagem do Faster R-CNN, que não entra no produto (E82), fica em
+training/detector_frcnn.py.
 """
 
 from __future__ import annotations
@@ -15,15 +15,12 @@ from functools import partial
 import torch
 from torch import nn
 from torchvision.models import MobileNet_V3_Large_Weights, mobilenet_v3_large
-from torchvision.models.detection import FasterRCNN
 from torchvision.models.detection import _utils as det_utils
 from torchvision.models.detection.anchor_utils import AnchorGenerator
-from torchvision.models.detection.backbone_utils import _mobilenet_extractor as _fpn_extractor
 from torchvision.models.detection.image_list import ImageList
 from torchvision.models.detection.ssd import SSD
 from torchvision.models.detection.ssdlite import SSDLiteHead, _normal_init
 from torchvision.models.detection.ssdlite import _mobilenet_extractor as _ssd_extractor
-from torchvision.ops import misc as misc_nn_ops
 
 import hashlib
 from dataclasses import dataclass, field
@@ -110,41 +107,6 @@ def build_ssd(shapes: Shapes, size: tuple[int, int] = (360, 480),
                nms_thresh=0.55, detections_per_img=300, topk_candidates=300,
                image_mean=[0.5, 0.5, 0.5], image_std=[0.5, 0.5, 0.5])
 
-
-# Estágios da MobileNetV3 entregues à FPN (N8): passos 8, 16, 32 e 32; com o nível
-# extra da FPN (passo 64), são 5 níveis. O padrão do torchvision usa só os dois
-# últimos (passo 32), porque amplia a foto para 800 px de lado.
-FPN_RETURNED_LAYERS = (2, 3, 4, 5)
-
-# Propostas da RPN na inferência da versão de baixa resolução do torchvision
-# (fasterrcnn_mobilenet_v3_large_320_fpn): usadas no perfil CPU (F1)
-LOW_LATENCY_RPN = {"rpn_pre_nms_top_n_test": 150, "rpn_post_nms_top_n_test": 150,
-                   "rpn_score_thresh": 0.05}
-
-
-def build_frcnn(shapes: Shapes, min_size: int, max_size: int,
-                pretrained_backbone: bool = False, trainable_layers: int = 3,
-                returned_layers: Sequence[int] = FPN_RETURNED_LAYERS,
-                **rpn_kwargs) -> FasterRCNN:
-    """Faster R-CNN com a MobileNetV3-Large e FPN, como no torchvision, trocando as âncoras.
-
-    Os níveis são os estágios de `returned_layers` mais o nível extra da FPN, com o
-    mesmo número de formas em cada um (exigência da RPN).
-    A normalização em lote é congelada, como na referência com espinha pré-treinada,
-    para que a arquitetura seja a mesma com ou sem os pesos do ImageNet.
-    `rpn_kwargs` vai para o FasterRCNN (por exemplo, LOW_LATENCY_RPN).
-    """
-    if len({len(level) for level in shapes}) != 1:
-        raise ValueError("A RPN exige o mesmo número de formas em todos os níveis.")
-    weights = BACKBONE_WEIGHTS if pretrained_backbone else None
-    backbone = mobilenet_v3_large(weights=weights, norm_layer=misc_nn_ops.FrozenBatchNorm2d)
-    backbone = _fpn_extractor(backbone, True, trainable_layers, returned_layers=list(returned_layers))
-    generator = ShapeAnchorGenerator(shapes)
-    if len(generator.shapes) != len(returned_layers) + 1:
-        raise ValueError("É preciso uma lista de formas por nível da FPN (estágios mais o extra).")
-    return FasterRCNN(backbone, NUM_CLASSES, rpn_anchor_generator=generator,
-                      min_size=min_size, max_size=max_size, box_score_thresh=SCORE_THRESH,
-                      **rpn_kwargs)
 
 
 

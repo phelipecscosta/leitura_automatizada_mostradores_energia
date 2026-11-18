@@ -7,8 +7,6 @@ from meter_reader import detector as det
 from training.box_labels import BOX_CLASSES
 
 SSD_SHAPES = [[(8.0 * (i + 1), 4.0 * (i + 1)), (6.0 * (i + 1), 6.0 * (i + 1))] for i in range(6)]
-FRCNN_SHAPES = [[(16.0 * (i + 1), 8.0 * (i + 1)), (12.0 * (i + 1), 12.0 * (i + 1))] for i in range(5)]
-
 
 def test_detector_classes_are_the_annotation_classes():
     assert det.DETECTOR_CLASSES == BOX_CLASSES and det.NUM_CLASSES == 5
@@ -37,7 +35,6 @@ def test_generator_rejects_empty_level_and_wrong_level_count():
 
 @pytest.mark.parametrize("build", [
     lambda: det.build_ssd(SSD_SHAPES),
-    lambda: det.build_frcnn(FRCNN_SHAPES, 360, 480),
 ])
 def test_models_train_and_predict_on_a_portrait_photo(build):
     torch.manual_seed(0)
@@ -61,33 +58,6 @@ def test_ssd_keeps_the_native_size_without_squashing():
     images, _ = model.transform([torch.rand(3, 480, 360)])
     assert tuple(images.image_sizes[0]) == (480, 360)
 
-
-def test_frcnn_requires_one_shape_list_per_level_with_the_same_count():
-    with pytest.raises(ValueError):   # contagens diferentes entre níveis
-        det.build_frcnn([[(1.0, 1.0)]] * 4 + [[(1.0, 1.0), (2.0, 2.0)]], 360, 480)
-    with pytest.raises(ValueError):   # 3 níveis, mas a N8 tem 5
-        det.build_frcnn([[(1.0, 1.0)]] * 3, 360, 480)
-
-
-def test_frcnn_n8_starts_at_stride_8_on_a_native_photo():
-    model = det.build_frcnn(FRCNN_SHAPES, 360, 480).eval()
-    with torch.no_grad():
-        images, _ = model.transform([torch.rand(3, 480, 360)])
-        features = model.backbone(images.tensors)
-    height = images.tensors.shape[-2]
-    strides = [height // f.shape[-2] for f in features.values()]
-    assert strides[:4] == [8, 16, 32, 32]
-    # Nível extra: metade do último mapa, arredondada para cima (15 -> 8 linhas)
-    assert list(features.values())[-1].shape[-2] == 8
-
-def test_low_latency_rpn_reaches_the_model():
-    model = det.build_frcnn(FRCNN_SHAPES, 360, 480, **det.LOW_LATENCY_RPN)
-    assert model.rpn._post_nms_top_n["testing"] == 150
-    assert model.rpn._pre_nms_top_n["testing"] == 150
-
-
-
-def test_both_architectures_use_the_same_score_threshold():
-    ssd = det.build_ssd(SSD_SHAPES)
-    frcnn = det.build_frcnn(FRCNN_SHAPES, 360, 480)
-    assert ssd.score_thresh == det.SCORE_THRESH == frcnn.roi_heads.score_thresh == 0.001
+def test_product_detector_has_no_faster_rcnn():
+    # E82 e opção 3a da ET5c: o Faster R-CNN não entra no pacote do produto
+    assert not hasattr(det, "build_frcnn") and not hasattr(det, "LOW_LATENCY_RPN")
