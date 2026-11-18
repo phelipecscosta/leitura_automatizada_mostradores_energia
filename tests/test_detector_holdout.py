@@ -23,7 +23,8 @@ def _perfect(photo):
 def test_perfect_predictions():
     out = evaluate(PHOTOS, [_perfect(p) for p in PHOTOS], 0.0122, 0.19, TYPES)
     assert out["selecao"] == pytest.approx(1.0)
-    assert out["porta"]["perda"] == 0 and out["meta_cumprida"]
+    assert out["porta"]["perda"] == 0
+    assert not out["meta_cumprida"]  # 0 em 2 fotos não prova 0,5% pelo limite superior (E09)
     assert out["regra_kvarh"]["acerto"] == pytest.approx(1.0) and out["fotos_regra_kvarh"] == 1
     assert out["validador2"]["diverge"] == 0
 
