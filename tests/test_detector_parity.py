@@ -25,3 +25,8 @@ def test_each_divergence_is_reported():
     assert compare_decisions(_res(), _res(consumption=(5, 5, 20, 20))) == ["consumo"]
     assert compare_decisions(_res(), _res(consumption=None, ambiguity="x")) == ["ambiguidade",
                                                                                   "consumo"]
+
+def test_same_region_with_a_shifted_representative_box():
+    # caixa deslocada alguns pixels sobre o mesmo display: IoU alto, decisão igual
+    assert compare_decisions(_res(consumption=(0, 0, 100, 30)),
+                             _res(consumption=(3, 1, 103, 31))) == []
