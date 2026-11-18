@@ -8,6 +8,7 @@ calcula (E33); o treino usa precisão mista na GPU (T3 a).
 from __future__ import annotations
 
 import copy
+import gc
 import math
 import time
 from collections.abc import Callable
@@ -132,6 +133,29 @@ def train_one(cand: Candidate, shapes, fit: list[DetectorPhoto], internal: list[
     model.load_state_dict(best_state)
     return model, best_epoch, history
 
+def train_fixed(cand: Candidate, shapes, photos: list[DetectorPhoto], stop_epoch: int,
+                run_seed: int, device: str, cfg: DetectorTrainConfig = DetectorTrainConfig(),
+                log: Callable[[str], None] = print, pretrained: bool = True,
+                coco_prefix: bool = False):
+    """Modelo final (protocolo, 1.5; revisões R2 e R4): cronograma completo de
+    cfg.max_epochs épocas, parada fixa ao fim de `stop_epoch`, sem divisão interna.
+
+    Usa as mesmas funções do train_one (setup e train_epoch), na mesma ordem, para que,
+    parado na mesma época e com as mesmas fotos, dê os mesmos pesos. Devolve a rede.
+    """
+    if not 1 <= stop_epoch <= cfg.max_epochs:
+        raise ValueError("A época de parada precisa estar entre 1 e o fim do cronograma.")
+    train_set = DetectorDataset(photos, True, run_seed)
+    loader = make_loader(train_set, cfg, device, True, run_seed)
+    run = setup(cand, shapes, cfg, len(photos), run_seed, device, pretrained, coco_prefix)
+    for epoch in range(1, stop_epoch + 1):
+        start = time.perf_counter()
+        loss = train_epoch(run, loader, train_set, epoch, device)
+        log(f"época {epoch} de {stop_epoch}: perda {loss:.4f}, "
+            f"{time.perf_counter() - start:.0f} s")
+    del loader
+    gc.collect()  # encerra os processos do treino (E62)
+    return run["model"].eval()
 
 def time_one_epoch(cand: Candidate, shapes, fit: list[DetectorPhoto], internal: list[DetectorPhoto],
                    device: str, cfg: DetectorTrainConfig = DetectorTrainConfig()) -> tuple[float, float]:

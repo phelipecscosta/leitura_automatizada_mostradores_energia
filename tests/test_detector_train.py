@@ -92,3 +92,40 @@ def test_variant_name_only_for_s1():
     assert rd.variant_name("F1", False) == "F1"
     with pytest.raises(SystemExit):
         rd.variant_name("F1", True)
+
+def test_train_fixed_matches_train_one_at_the_same_epoch(tmp_path):
+    """Parado na época escolhida, o treino final dá os mesmos pesos do train_one."""
+    import torch
+    photos = _photos(tmp_path, 5)
+    cand = CANDIDATES[0]
+    model, best_epoch, _ = dt.train_one(cand, SHAPES, photos[:4], photos[4:], 0, "cpu", CFG,
+                                        log=lambda m: None, pretrained=False)
+    fixed = dt.train_fixed(cand, SHAPES, photos[:4], best_epoch, 0, "cpu", CFG,
+                           log=lambda m: None, pretrained=False)
+    a, b = model.state_dict(), fixed.state_dict()
+    assert set(a) == set(b)
+    assert all(torch.allclose(a[k].float(), b[k].float(), atol=1e-6) for k in a)
+    assert not fixed.training
+
+
+def test_train_fixed_rejects_stop_outside_the_schedule(tmp_path):
+    photos = _photos(tmp_path, 4)
+    for stop in (0, CFG.max_epochs + 1):
+        with pytest.raises(ValueError):
+            dt.train_fixed(CANDIDATES[0], SHAPES, photos, stop, 0, "cpu", CFG,
+                           log=lambda m: None, pretrained=False)
+
+
+def test_median_stop_reads_the_nine_parts(tmp_path):
+    epochs = [5, 9, 7, 3, 8, 6, 4, 10, 2]
+    for i, epoch in enumerate(epochs):
+        rd.save_part(rd.part_path(tmp_path, "S1_coco", f"lote{i // 3}", i % 3), [], [],
+                     {"melhor_epoca": epoch})
+    stop, read = rd.median_stop(tmp_path, "S1_coco")
+    assert stop == 6 and sorted(read) == sorted(epochs)
+
+
+def test_median_stop_requires_nine_parts(tmp_path):
+    rd.save_part(rd.part_path(tmp_path, "S1", "lote0", 0), [], [], {"melhor_epoca": 3})
+    with pytest.raises(SystemExit):
+        rd.median_stop(tmp_path, "S1")

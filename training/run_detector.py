@@ -4,6 +4,7 @@ Uso, a partir da raiz do repositório do produto:
     python -m training.run_detector tempo          (1 época de cada candidato; nada é gravado)
     python -m training.run_detector treinar S1     (um candidato: 3 dobras × 3 sementes)
     python -m training.run_detector treinar S1 coco   (ablação COCO, revisão R4: pasta S1_coco)
+    python -m training.run_detector final S1 [coco]  (modelo final da semente 0, revisão R4)
 
 Cada par lote × semente é gravado assim que termina, em
 <pasta de trabalho>/experimentos/detector/<candidato>/, e uma nova chamada retoma
@@ -31,7 +32,7 @@ from training.detector_anchors import ANCHORS_NAME, CANDIDATES
 from training.detector_dataset import (BOXES_SHA256, DetectorDataset, DetectorPhoto, fold_indices,
                                        internal_split, load_detector_photos)
 from training.detector_train import (DetectorTrainConfig, flatten_predictions, make_loader,
-                                     predict, time_one_epoch, train_one)
+                                     predict, time_one_epoch, train_fixed, train_one)
 
 SEEDS = (0, 1, 2)
 OUTPUT_FOLDER = Path("experimentos") / "detector"
@@ -144,17 +145,70 @@ def run_training(name: str, device: str, coco: bool = False) -> None:
             del model
             torch.cuda.empty_cache()
 
+FINAL_FOLDER = Path("modelos") / "detector"
+FINAL_SEED = 0  # revisão R2: o produto usa o modelo final da semente 0
+
+
+def median_stop(work_dir: Path, folder: str) -> tuple[int, list[int]]:
+    """Época de parada do modelo final (revisão R4): a mediana das épocas escolhidas nas
+    9 partes (3 lotes × 3 sementes) do candidato. Devolve (mediana, épocas lidas)."""
+    paths = sorted((work_dir / OUTPUT_FOLDER / folder).glob("*.npz"))
+    if len(paths) != len(SEEDS) * 3:
+        raise SystemExit(f"{folder}: são precisas 9 partes gravadas, há {len(paths)}.")
+    epochs = []
+    for path in paths:
+        with np.load(path) as data:
+            epochs.append(int(json.loads(str(data["meta"]))["melhor_epoca"]))
+    return int(np.median(epochs)), epochs  # 9 valores: a mediana é um deles
+
+
+def final_path(work_dir: Path, folder: str) -> Path:
+    return work_dir / FINAL_FOLDER / f"{folder}_final_s{FINAL_SEED}.pt"
+
+
+def run_final_model(name: str, device: str, coco: bool = False) -> None:
+    """Treina e grava o modelo final do candidato com as fotos dos 3 lotes de
+    desenvolvimento (nenhuma foto do teste). Nunca sobrescreve um modelo gravado."""
+    from training.evaluation import _product_commit
+    from training.run_final import save_final
+
+    cand = candidate(name)
+    folder = variant_name(name, coco)
+    work_dir = get_work_dir()
+    path = final_path(work_dir, folder)
+    if path.exists():
+        print(f"[{folder} final] já gravado, pulando", flush=True)
+        return
+    shapes, shapes_sha = load_shapes(work_dir)
+    stop, epochs = median_stop(work_dir, folder)
+    photos = [p for p in load_detector_photos() if p.subset == "desenvolvimento"]
+    cfg = DetectorTrainConfig()
+    print(f"[{folder} final] {len(photos)} fotos; épocas escolhidas {sorted(epochs)}; "
+          f"parada na época {stop}", flush=True)
+    model = train_fixed(cand, shapes[name]["formas"], photos, stop, FINAL_SEED, device, cfg,
+                        log=lambda m: print(f"[{folder} final] {m}", flush=True),
+                        coco_prefix=coco)
+    meta = {"candidato": folder, "semente": FINAL_SEED, "epoca_parada": stop,
+            "epocas_escolhidas": epochs, "fotos": len(photos),
+            "lotes": sorted({p.lot for p in photos}), "treino": asdict(cfg),
+            "sha_caixas": BOXES_SHA256, "sha_formas": shapes_sha,
+            "corte_confianca": SCORE_THRESH,
+            "pesos_iniciais": "imagenet_e_prefixo_coco" if coco else "imagenet",
+            "commit_produto": _product_commit()}
+    digest = save_final(path, model, meta)
+    print(f"[{folder} final] gravado: SHA-256 {digest[:12]}…", flush=True)
 
 if __name__ == "__main__":  # obrigatório no Windows: os processos auxiliares reimportam o módulo
     device = "cuda" if torch.cuda.is_available() else "cpu"
     args = sys.argv[1:]
+    coco = len(args) == 3 and args[2] == "coco"
     if args == ["tempo"]:
         run_timing(device)
-    elif len(args) == 2 and args[0] == "treinar":
-        run_training(args[1], device)
-    elif len(args) == 3 and args[0] == "treinar" and args[2] == "coco":
-        run_training(args[1], device, coco=True)
+    elif args[:1] == ["treinar"] and (len(args) == 2 or coco):
+        run_training(args[1], device, coco)
+    elif args[:1] == ["final"] and (len(args) == 2 or coco):
+        run_final_model(args[1], device, coco)
     else:
         raise SystemExit("Uso: python -m training.run_detector "
-                         "{tempo | treinar S1|F1|F2 | treinar S1 coco}")
+                         "{tempo | treinar S1|F1|F2 | treinar S1 coco | final S1 | final S1 coco}")
     print("Concluído.")
