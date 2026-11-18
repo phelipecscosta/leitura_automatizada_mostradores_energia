@@ -188,7 +188,7 @@ ARTIFACT_FORMAT = 1
 
 # SHA-256 do único artefato do detector aceito por esta versão do produto (E72).
 # Fica no código, e não no .env; muda junto com o artefato, num commit próprio.
-PRODUCT_DETECTOR_SHA256 = "a_definir_no_commit_do_artefato"
+PRODUCT_DETECTOR_SHA256 = "d0d0ff83f1c384f460d8efda307466c0e145b76ef8e202a73c152ed686c1e28e"
 
 
 class DetectorArtifactError(ValueError):
