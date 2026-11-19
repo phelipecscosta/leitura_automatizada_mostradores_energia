@@ -54,3 +54,14 @@ def test_done_keys_reads_saved_requests(tmp_path):
                     encoding="utf-8")
     assert done_keys(path) == {("F-1", "numero_serie", 1)}
     assert done_keys(tmp_path / "nada.jsonl") == set()
+
+from training.reader_pilot import judgment_queue
+
+
+def test_judgment_queue_takes_all_non_accepted_plus_audit():
+    df = _cands(n_dig=10, n_cyc=0, n_ser=0)
+    df["status"] = ["aceito"] * 7 + ["fila_f2", "parcial", "ilegivel"]
+    q = judgment_queue(df, audit_n=2)
+    assert len(q) == 5 and int(q["auditoria"].sum()) == 2
+    assert set(q.loc[~q["auditoria"], "status"]) == {"fila_f2", "parcial", "ilegivel"}
+    assert list(q["ordem_julgamento"]) == [1, 2, 3, 4, 5]

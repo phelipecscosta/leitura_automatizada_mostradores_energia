@@ -27,6 +27,44 @@ PILOT_COLUMNS = ("ordem", "pseudonimo", "classe", "x0", "y0", "x1", "y1", "estab
 
 PILOT_SHA256 = "5668a3edad4c906662141e319a369386f319b70cb78f03a0f9a6fcb778622a91"
 RESPONSES_PATH = Path("experimentos") / "leitor" / "piloto" / "respostas_haiku.jsonl"
+AUDIT_N = 20  # aceitos sorteados para a auditoria (D5)
+QUEUE_NAME = "fila_julgamento_piloto.csv"
+
+
+def judgment_queue(df: pd.DataFrame, audit_n: int = AUDIT_N) -> pd.DataFrame:
+    """Recortes a julgar: todos os não aceitos e `audit_n` aceitos sorteados, misturados
+    numa ordem aleatória fixa (o julgamento não sabe quais são da auditoria)."""
+    from training.teacher_eval import ACCEPTED
+
+    keys = df["pseudonimo"] + "|" + df["classe"]
+    audit = set(shuffled(keys[df["status"] == ACCEPTED], "piloto:auditoria")[:audit_n])
+    queue = df[(df["status"] != ACCEPTED) | keys.isin(audit)].copy()
+    qkeys = keys[queue.index]
+    queue["auditoria"] = qkeys.isin(audit)
+    order = {k: i + 1 for i, k in enumerate(shuffled(qkeys, "piloto:julgamento"))}
+    queue["ordem_julgamento"] = qkeys.map(order)
+    cols = ["ordem_julgamento", "pseudonimo", "classe", "x0", "y0", "x1", "y1",
+            "status", "auditoria"]
+    return queue.sort_values("ordem_julgamento")[cols].reset_index(drop=True)
+
+
+def csv_rows(photos) -> dict:
+    """Linha do BaseExtracao de cada foto, pelo nome exato, lida do lote da própria foto."""
+    from meter_reader.extraction import read_extraction
+    from meter_reader.pairing import index_by_photo
+
+    rows, cache = {}, {}
+    for p in photos:
+        lot_dir = p.path.parent
+        if lot_dir not in cache:
+            files = sorted(lot_dir.glob("BaseExtracao_*.csv"))
+            if len(files) != 1:
+                raise SystemExit("Lote sem um BaseExtracao único.")
+            cache[lot_dir] = index_by_photo(read_extraction(files[0]))
+        row = cache[lot_dir].get(p.path.name)
+        if row is not None:
+            rows[p.pseudonym] = row
+    return rows
 
 
 def pilot_jobs(sample: pd.DataFrame) -> list[tuple[dict, int]]:
@@ -157,6 +195,59 @@ def enviar(limit: int | None) -> None:
           f"{tokens_in}, de saída {tokens_out}; gravados no total: {total} de "
           f"{len(pilot_jobs(sample))}")
 
+def relatorio() -> None:
+    """Status de cada recorte (regras da T6a.1), medidas do piloto e fila de julgamento.
+    Imprime só contagens."""
+    from meter_reader.config import get_work_dir
+    from training.detector_dataset import load_detector_photos
+    from training.teacher_eval import (ACCEPTED, FORMAT_ERROR, STATUSES,
+                                       decimal_drum_suspect, label_status, stable)
+
+    work_dir = get_work_dir()
+    sample = pd.read_csv(work_dir / PILOT_NAME, float_precision="round_trip")
+    recs = {}
+    with (work_dir / RESPONSES_PATH).open(encoding="utf-8") as f:
+        for line in f:
+            r = json.loads(line)
+            recs[(r["pseudonimo"], r["classe"], r["repeticao"])] = r
+    if len(recs) != len(pilot_jobs(sample)):
+        raise SystemExit("Piloto incompleto: rode o envio de novo.")
+    codes = set(sample["pseudonimo"])
+    csv = csv_rows([p for p in load_detector_photos() if p.pseudonym in codes])
+    if set(csv) != codes:
+        raise SystemExit("Há fotos do piloto sem linha no BaseExtracao.")
+
+    rows = []
+    for s in sample.to_dict("records"):
+        rec = recs[(s["pseudonimo"], s["classe"], 1)]
+        row = csv[s["pseudonimo"]]
+        resp = rec["resposta"] or {}
+        rows.append({**s,
+                     "status": label_status(s["classe"], rec, row.expected_meter_number, row.reading),
+                     "tambor_decimal": s["classe"] == "display_ciclometrico"
+                                       and decimal_drum_suspect(rec, row.reading),
+                     "erro": rec["erro"], "funcao": resp.get("funcao"),
+                     "duas_leituras": resp.get("duas_leituras")})
+    df = pd.DataFrame(rows)
+
+    table = pd.crosstab(df["classe"], df["status"]).reindex(columns=list(STATUSES), fill_value=0)
+    table["aceitacao"] = (table[ACCEPTED] / table[list(STATUSES)].sum(axis=1)).round(3)
+    print(table.to_string(), "\n")
+    errs = df[df["status"] == FORMAT_ERROR].groupby(["classe", "erro"]).size()
+    print("Erros de formato por tipo:\n" + (errs.to_string() if len(errs) else "nenhum"), "\n")
+    dig = df[(df["classe"] == "display_digital") & df["funcao"].notna()]
+    print("Funções lidas nos digitais:", dig["funcao"].replace("", "(vazia)").value_counts().to_dict())
+    print("Digitais com duas leituras:", int((dig["duas_leituras"] == True).sum()))  # noqa: E712
+    print("Ciclométricos com suspeita de tambor decimal:", int(df["tambor_decimal"].sum()))
+    pairs = [(recs[(s["pseudonimo"], s["classe"], 1)], recs[(s["pseudonimo"], s["classe"], 2)])
+             for s in sample.to_dict("records") if s["estabilidade"]]
+    print(f"Estabilidade: {sum(stable(a, b) for a, b in pairs)} de {len(pairs)} idênticas")
+
+    queue = judgment_queue(df)
+    queue.to_csv(work_dir / QUEUE_NAME, index=False, encoding="utf-8", lineterminator="\n")
+    print(f"Fila de julgamento: {len(queue)} recortes "
+          f"({int(queue['auditoria'].sum())} da auditoria), gravada na pasta de trabalho")
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Piloto do professor do leitor (T6a.3).")
@@ -164,12 +255,14 @@ def main() -> None:
     sub.add_parser("sortear", help="sorteia e grava a amostra do piloto")
     env = sub.add_parser("enviar", help="envia ao professor os pedidos pendentes")
     env.add_argument("--limite", type=int, default=None, help="no máximo N pedidos novos")
+    sub.add_parser("relatorio", help="aplica as regras às respostas e grava a fila de julgamento")
     args = parser.parse_args()
     if args.comando == "sortear":
         sortear()
-    else:
+    elif args.comando == "enviar":
         enviar(args.limite)
-
+    else:
+        relatorio()
 
 if __name__ == "__main__":
     main()
