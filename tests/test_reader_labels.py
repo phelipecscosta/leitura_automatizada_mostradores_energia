@@ -26,3 +26,16 @@ def test_final_predictions_keeps_detector_boxes():
     detector = SimpleNamespace(predict=lambda path: result)
     preds = final_predictions(["a.jpg", "b.jpg"], detector)
     assert len(preds) == 2 and preds[0]["labels"].tolist() == [4]
+
+from training.reader_labels import custom_id, parse_custom_id, split_parts
+
+
+def test_custom_id_round_trip_and_format():
+    cid = custom_id("F-0123456789ab", "display_ciclometrico")
+    assert cid == "F-0123456789ab__cic"
+    assert parse_custom_id(cid) == ("F-0123456789ab", "display_ciclometrico")
+
+
+def test_split_parts_respects_both_limits():
+    assert split_parts([40, 40, 40, 40], max_bytes=100, max_requests=10) == [0, 2]
+    assert split_parts([1, 1, 1, 1, 1], max_bytes=100, max_requests=2) == [0, 2, 4]

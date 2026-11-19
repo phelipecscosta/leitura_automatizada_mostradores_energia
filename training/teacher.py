@@ -137,10 +137,9 @@ def validate(field_class: str, data: dict) -> dict:
         raise ValueError("Função fora do formato.")
     return out
 
-def ask(client, png: bytes, field_class: str, model: str = MODEL) -> dict:
-    """Uma chamada ao professor. Devolve o registro a gravar, sem a imagem: a resposta
-    bruta, a validada (ou o erro), o modelo que respondeu e os tokens."""
-    resp = client.messages.create(**build_request(png, field_class, model))
+def parse_message(resp, field_class: str) -> dict:
+    """Registro de uma resposta do professor, sem a imagem: a resposta bruta, a validada
+    (ou o erro), o modelo que respondeu e os tokens. Serve à chamada direta e ao lote."""
     tool = next((b for b in resp.content if getattr(b, "type", None) == "tool_use"), None)
     raw = dict(tool.input) if tool is not None else None
     record = {"modelo_resposta": resp.model, "parada": resp.stop_reason,
@@ -155,6 +154,12 @@ def ask(client, png: bytes, field_class: str, model: str = MODEL) -> dict:
     except ValueError as exc:
         record["erro"] = str(exc)
     return record
+
+
+def ask(client, png: bytes, field_class: str, model: str = MODEL) -> dict:
+    """Uma chamada direta ao professor."""
+    return parse_message(client.messages.create(**build_request(png, field_class, model)),
+                         field_class)
 
 def revalidate(field_class: str, record: dict) -> dict:
     """O registro com a resposta validada de novo, a partir da bruta, pelas regras atuais."""
