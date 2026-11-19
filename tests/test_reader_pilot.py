@@ -75,3 +75,14 @@ def test_candidate_text_keeps_only_text_fields():
     assert candidate_text("display_digital", resp) == {"leitura": "0012", "funcao": "03"}
     assert candidate_text("numero_serie", {"legivel": True, "numero": "AB1", "rotacao": 90}) == {
         "numero": "AB1"}
+
+from training.reader_pilot import audit_result
+
+
+def test_audit_result_separates_zero_count_from_value_errors():
+    opt = {"leitura": "0012345", "funcao": "03"}
+    assert audit_result(opt, "opcao_1", "") == "correta"
+    assert audit_result(opt, "outra", '{"leitura": "012345", "funcao": "03"}') == "so_zeros"
+    assert audit_result(opt, "outra", '{"leitura": "0012845", "funcao": "03"}') == "valor_errado"
+    assert audit_result(opt, "outra", '{"leitura": "0012345", "funcao": "103"}') == "valor_errado"
+    assert audit_result(opt, "parcial", "") == "parcial"

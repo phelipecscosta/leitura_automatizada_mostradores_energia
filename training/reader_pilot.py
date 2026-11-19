@@ -36,6 +36,7 @@ PILOT_SHA256 = "5668a3edad4c906662141e319a369386f319b70cb78f03a0f9a6fcb778622a91
 PILOT_COLUMNS = ("ordem", "pseudonimo", "classe", "x0", "y0", "x1", "y1", "estabilidade")
 RESPONSES_DIR = Path("experimentos") / "leitor" / "piloto"
 AUDIT_QUEUE_NAME = "fila_auditoria_piloto.csv"
+AUDIT_JUDGMENT_NAME = "julgamento_auditoria_piloto.csv"
 QUEUE_COLUMNS = ("item", "pseudonimo", "classe", "x0", "y0", "x1", "y1", "rotacao", "opcoes")
 
 # ---------------------------------------------------------------------
@@ -398,13 +399,48 @@ def auditoria(model: str) -> None:
     print(f"Fila de auditoria: {len(queue)} recortes aceitos; por classe "
           f"{queue['classe'].value_counts().to_dict()}")
 
+def _number(text: str) -> str:
+    """Leitura sem os zeros à esquerda (comparação numérica, spec 13.2)."""
+    return text.lstrip("0") or "0"
+
+
+def audit_result(option: dict, decision: str, value: str) -> str:
+    """Resultado de um item da auditoria: correta, só zeros à esquerda errados, valor
+    errado, parcial ou ilegível."""
+    if decision == "opcao_1":
+        return "correta"
+    if decision != "outra":
+        return decision
+    judged = json.loads(value)
+    same = all(_number(option[k]) == _number(judged[k]) if k == "leitura"
+               else option[k] == judged[k] for k in option)
+    return "so_zeros" if same else "valor_errado"
+
+
+def resumo_auditoria() -> None:
+    """Resumo da auditoria dos rótulos aceitos do piloto. Só contagens."""
+    from meter_reader.config import get_work_dir
+
+    work_dir = get_work_dir()
+    queue = pd.read_csv(work_dir / AUDIT_QUEUE_NAME, dtype=str, keep_default_na=False)
+    judged = pd.read_csv(work_dir / AUDIT_JUDGMENT_NAME, dtype=str, keep_default_na=False)
+    if len(judged) != len(queue):
+        raise SystemExit("Auditoria incompleta.")
+    m = queue.merge(judged, on=["item", "pseudonimo", "classe"], validate="one_to_one")
+    m["resultado"] = [audit_result(json.loads(o)[0], d, v)
+                      for o, d, v in zip(m["opcoes"], m["decisao"], m["valor"])]
+    print(pd.crosstab(m["classe"], m["resultado"]).to_string(), "\n")
+    n = len(m)
+    print(f"Erro de valor: {int((m['resultado'] == 'valor_errado').sum())} de {n}; "
+          f"erro só de zeros à esquerda: {int((m['resultado'] == 'so_zeros').sum())} de {n}; "
+          f"rotação errada: {int((m['rotacao_errada'] == 'True').sum())} de {n}")
 
 def main() -> None:
     from training.teacher import MODEL
 
     parser = argparse.ArgumentParser(description="Piloto do professor do leitor (T6a.3).")
     sub = parser.add_subparsers(dest="comando", required=True)
-    sub.add_parser("sortear", help="sorteia e grava a amostra do piloto")
+    sub.add_parser("resumo_auditoria", help="resume a auditoria dos rótulos aceitos")
     for name, text in (("enviar", "envia ao professor os pedidos pendentes"),
                        ("relatorio", "aplica as regras e grava a fila de julgamento"),
                        ("diagnostico", "diagnóstico do piloto, sem custo"),
@@ -415,6 +451,9 @@ def main() -> None:
             p.add_argument("--limite", type=int, default=None, help="no máximo N pedidos novos")
     args = parser.parse_args()
     if args.comando == "sortear":
+        sortear()
+    elif args.comando == "resumo_auditoria":
+        resumo_auditoria()
         sortear()
     elif args.comando == "enviar":
         enviar(args.limite, args.modelo)
