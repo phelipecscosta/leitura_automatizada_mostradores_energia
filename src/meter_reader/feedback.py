@@ -72,7 +72,7 @@ def format_feedback(summary: Summary, control_path: Path, updated: bool, paramet
                      f"{_percent(count, summary.total):>6}")
     lines += ["", f"Validação por Parâmetros: {parameters}"]
     if provisional:
-        lines.append("Leitura: provisória. Toda imagem que passa pela triagem vai para "
+        lines.append("Leitura: provisória. Toda imagem que chega ao leitor vai para "
                      "verificação; nenhuma é aprovada automaticamente.")
     if stale_by_folder:
         total = sum(stale_by_folder.values())
