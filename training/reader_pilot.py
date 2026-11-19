@@ -35,7 +35,8 @@ PILOT_NAME = "amostra_piloto_professor.csv"
 PILOT_SHA256 = "5668a3edad4c906662141e319a369386f319b70cb78f03a0f9a6fcb778622a91"
 PILOT_COLUMNS = ("ordem", "pseudonimo", "classe", "x0", "y0", "x1", "y1", "estabilidade")
 RESPONSES_DIR = Path("experimentos") / "leitor" / "piloto"
-
+AUDIT_QUEUE_NAME = "fila_auditoria_piloto.csv"
+QUEUE_COLUMNS = ("item", "pseudonimo", "classe", "x0", "y0", "x1", "y1", "rotacao", "opcoes")
 
 # ---------------------------------------------------------------------
 # Amostra do piloto
@@ -360,6 +361,43 @@ def diagnostico(model: str) -> None:
     for (cls, shape), n in sorted(formats.items()):
         print(f"  {cls}: '{shape}' x{n}")
 
+def candidate_text(field_class: str, resp: dict) -> dict:
+    """Campos de texto de uma resposta validada: o que o julgamento confere."""
+    from training.teacher import TEXT_FIELDS
+
+    return {name: resp[name] for name in TEXT_FIELDS[field_class]}
+
+
+def auditoria(model: str) -> None:
+    """Fila de auditoria: os recortes aceitos (R1 a R3) do modelo no piloto, com a leitura
+    do professor como única opção, em ordem aleatória fixa. Fica na pasta de trabalho."""
+    from meter_reader.config import get_work_dir
+    from training.teacher_eval import ACCEPTED, label_status
+
+    work_dir = get_work_dir()
+    sample = load_sample(work_dir)
+    recs = load_records(work_dir / responses_path(model))
+    _, csv = _context(work_dir, sample)
+    rows = []
+    for s in sample.to_dict("records"):
+        rec, row = recs[(s["pseudonimo"], s["classe"], 1)], csv[s["pseudonimo"]]
+        if label_status(s["classe"], rec, row.expected_meter_number, row.reading) != ACCEPTED:
+            continue
+        resp = rec["resposta"]
+        rows.append({"pseudonimo": s["pseudonimo"], "classe": s["classe"],
+                     "x0": s["x0"], "y0": s["y0"], "x1": s["x1"], "y1": s["y1"],
+                     "rotacao": resp["rotacao"],
+                     "opcoes": json.dumps([candidate_text(s["classe"], resp)],
+                                          ensure_ascii=False)})
+    queue = pd.DataFrame(rows)
+    keys = queue["pseudonimo"] + "|" + queue["classe"]
+    order = {k: i + 1 for i, k in enumerate(shuffled(keys, "piloto:auditoria_aceitos"))}
+    queue["item"] = keys.map(order)
+    queue = queue.sort_values("item")[list(QUEUE_COLUMNS)]
+    queue.to_csv(work_dir / AUDIT_QUEUE_NAME, index=False, encoding="utf-8", lineterminator="\n")
+    print(f"Fila de auditoria: {len(queue)} recortes aceitos; por classe "
+          f"{queue['classe'].value_counts().to_dict()}")
+
 
 def main() -> None:
     from training.teacher import MODEL
@@ -369,7 +407,8 @@ def main() -> None:
     sub.add_parser("sortear", help="sorteia e grava a amostra do piloto")
     for name, text in (("enviar", "envia ao professor os pedidos pendentes"),
                        ("relatorio", "aplica as regras e grava a fila de julgamento"),
-                       ("diagnostico", "diagnóstico do piloto, sem custo")):
+                       ("diagnostico", "diagnóstico do piloto, sem custo"),
+                       ("auditoria", "grava a fila de auditoria dos recortes aceitos")):
         p = sub.add_parser(name, help=text)
         p.add_argument("--modelo", default=MODEL, help="identificador do modelo do professor")
         if name == "enviar":
@@ -381,9 +420,10 @@ def main() -> None:
         enviar(args.limite, args.modelo)
     elif args.comando == "relatorio":
         relatorio(args.modelo)
-    else:
+    elif args.comando == "diagnostico":
         diagnostico(args.modelo)
-
+    else:
+        auditoria(args.modelo)
 
 if __name__ == "__main__":
     main()

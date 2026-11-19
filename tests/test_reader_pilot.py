@@ -65,3 +65,13 @@ def test_judgment_queue_takes_all_non_accepted_plus_audit():
     assert len(q) == 5 and int(q["auditoria"].sum()) == 2
     assert set(q.loc[~q["auditoria"], "status"]) == {"fila_f2", "parcial", "ilegivel"}
     assert list(q["ordem_julgamento"]) == [1, 2, 3, 4, 5]
+
+from training.reader_pilot import candidate_text
+
+
+def test_candidate_text_keeps_only_text_fields():
+    resp = {"legivel": True, "leitura": "0012", "funcao": "03", "duas_leituras": False,
+            "rotacao": 0}
+    assert candidate_text("display_digital", resp) == {"leitura": "0012", "funcao": "03"}
+    assert candidate_text("numero_serie", {"legivel": True, "numero": "AB1", "rotacao": 90}) == {
+        "numero": "AB1"}
