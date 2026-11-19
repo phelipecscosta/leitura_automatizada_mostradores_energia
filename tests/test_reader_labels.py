@@ -39,3 +39,13 @@ def test_custom_id_round_trip_and_format():
 def test_split_parts_respects_both_limits():
     assert split_parts([40, 40, 40, 40], max_bytes=100, max_requests=10) == [0, 2]
     assert split_parts([1, 1, 1, 1, 1], max_bytes=100, max_requests=2) == [0, 2, 4]
+
+from training.reader_labels import numeric_value
+
+
+def test_numeric_value_strips_zeros_and_refuses_uncertain():
+    assert numeric_value("0012345") == "12345"
+    assert numeric_value("0000") == "0"
+    assert numeric_value("01?45") == ""
+    assert numeric_value("0124[56]") == ""
+    assert numeric_value("") == ""

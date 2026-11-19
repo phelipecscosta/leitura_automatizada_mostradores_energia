@@ -30,6 +30,26 @@ CLASS_CODES = {"display_digital": "dig", "display_ciclometrico": "cic", "numero_
 MAX_PART_BYTES = 180_000_000   # folga abaixo do limite de tamanho por lote da Batch API
 MAX_PART_REQUESTS = 10_000
 
+LABELS_COLUMNS = ("pseudonimo", "classe", "x0", "y0", "x1", "y1", "origem_caixa", "status",
+                  "texto", "valor", "funcao", "duas_leituras", "rotacao")
+
+
+def responses_path(model: str) -> Path:
+    """Respostas da rotulagem completa, relativo à pasta de trabalho."""
+    return LABEL_DIR / f"respostas_{model}.jsonl"
+
+
+def labels_name(model: str) -> str:
+    return f"rotulos_leitor_{model}.csv"
+
+
+def numeric_value(text: str) -> str:
+    """Leitura sem os zeros à esquerda (comparação numérica, spec 13.2); vazio se houver
+    "?" ou transição, que não têm valor único."""
+    if not text or "?" in text or "[" in text:
+        return ""
+    return text.lstrip("0") or "0"
+
 
 def custom_id(pseudonym: str, field_class: str) -> str:
     """Identificador do pedido no lote: só o pseudônimo e o código da classe."""
@@ -175,6 +195,97 @@ def enviar(model: str) -> None:
     if requests:
         submit(requests, size)
 
+def coletar(model: str) -> None:
+    """Baixa os resultados das partes já processadas; as demais só mostram o andamento."""
+    from anthropic import Anthropic
+    from dotenv import load_dotenv
+
+    from meter_reader.config import get_work_dir
+    from training.teacher import parse_message
+
+    load_dotenv()
+    work_dir = get_work_dir()
+    sp = work_dir / state_path(model)
+    state = load_state(sp)
+    out = work_dir / responses_path(model)
+    client = Anthropic()
+    for i, part in enumerate(state["partes"], 1):
+        if part["coletada"]:
+            continue
+        batch = client.messages.batches.retrieve(part["id"])
+        if batch.processing_status != "ended":
+            c = batch.request_counts
+            print(f"parte {i}: {batch.processing_status} (processando {c.processing}, "
+                  f"concluídos {c.succeeded}, com erro {c.errored})")
+            continue
+        with out.open("a", encoding="utf-8") as f:
+            for entry in client.messages.batches.results(part["id"]):
+                code, cls = parse_custom_id(entry.custom_id)
+                base = {"pseudonimo": code, "classe": cls, "repeticao": 1,
+                        "modelo_pedido": model, "lote_api": part["id"]}
+                if entry.result.type == "succeeded":
+                    rec = {**base, **parse_message(entry.result.message, cls)}
+                else:
+                    rec = {**base, "modelo_resposta": None, "parada": None,
+                           "tokens_entrada": 0, "tokens_saida": 0, "resposta_bruta": None,
+                           "resposta": None, "erro": f"lote_{entry.result.type}"}
+                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        part["coletada"] = True
+        save_state(sp, state)
+        print(f"parte {i}: coletada")
+    done = sum(p["coletada"] for p in state["partes"])
+    print(f"Partes coletadas: {done} de {len(state['partes'])}")
+
+
+def rotulos(model: str) -> None:
+    """Aplica as regras R1 a R3 às respostas e grava o arquivo de rótulos. Só contagens."""
+    from meter_reader.config import get_work_dir
+    from training.group_dataset import LABEL_VERSIONS, load_group_photos
+    from training.reader_pilot import csv_rows, load_records
+    from training.teacher_eval import ACCEPTED, QUEUE_F2, STATUSES, label_status
+
+    work_dir = get_work_dir()
+    state = load_state(work_dir / state_path(model))
+    if not state["partes"] or not all(p["coletada"] for p in state["partes"]):
+        raise SystemExit("Há partes não coletadas: rode o comando coletar.")
+    crops = pd.read_csv(work_dir / CROPS_NAME, float_precision="round_trip")
+    recs = load_records(work_dir / responses_path(model))
+    codes = set(crops["pseudonimo"])
+    csv = csv_rows([p for p in load_group_photos(LABEL_VERSIONS["r4"]) if p.pseudonym in codes])
+
+    rows, missing = [], 0
+    for c in crops.to_dict("records"):
+        rec = recs.get((c["pseudonimo"], c["classe"], 1))
+        if rec is None:
+            missing += 1
+            continue
+        row = csv[c["pseudonimo"]]
+        resp = rec["resposta"] or {}
+        text = resp.get("numero" if c["classe"] == "numero_serie" else "leitura", "")
+        rows.append({**c,
+                     "status": label_status(c["classe"], rec, row.expected_meter_number,
+                                            row.reading),
+                     "texto": text,
+                     "valor": text if c["classe"] == "numero_serie" else numeric_value(text),
+                     "funcao": resp.get("funcao", ""),
+                     "duas_leituras": resp.get("duas_leituras", ""),
+                     "rotacao": resp.get("rotacao", "")})
+    if missing:
+        raise SystemExit(f"{missing} recortes sem resposta gravada.")
+    labels = pd.DataFrame(rows)[list(LABELS_COLUMNS)]
+    path = work_dir / labels_name(model)
+    labels.to_csv(path, index=False, encoding="utf-8", lineterminator="\n")
+
+    table = pd.crosstab(labels["classe"], labels["status"]).reindex(columns=list(STATUSES),
+                                                                    fill_value=0)
+    table["aceitacao"] = (table[ACCEPTED] / table[list(STATUSES)].sum(axis=1)).round(3)
+    print(table.to_string(), "\n")
+    print("Rótulos aceitos por classe:",
+          labels[labels["status"] == ACCEPTED]["classe"].value_counts().to_dict())
+    print("Fila F-2 (antes do limite de 300):", int((labels["status"] == QUEUE_F2).sum()))
+    print("Erros de lote:", sum(1 for r in recs.values()
+                                if str(r.get("erro", "")).startswith("lote_")))
+    print("SHA-256 dos rótulos:", file_sha256(path))
 
 def main() -> None:
     from training.teacher import MODEL
@@ -182,13 +293,20 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Rotulagem completa do leitor (T6a.4).")
     sub = parser.add_subparsers(dest="comando", required=True)
     sub.add_parser("recortes", help="gera a lista de recortes do desenvolvimento")
-    env = sub.add_parser("enviar", help="envia os recortes pendentes pela Batch API")
-    env.add_argument("--modelo", default=MODEL)
+    for name, text in (("enviar", "envia os recortes pendentes pela Batch API"),
+                       ("coletar", "baixa os resultados das partes já processadas"),
+                       ("rotulos", "aplica as regras e grava o arquivo de rótulos")):
+        p = sub.add_parser(name, help=text)
+        p.add_argument("--modelo", default=MODEL)
     args = parser.parse_args()
     if args.comando == "recortes":
         recortes()
-    else:
+    elif args.comando == "enviar":
         enviar(args.modelo)
+    elif args.comando == "coletar":
+        coletar(args.modelo)
+    else:
+        rotulos(args.modelo)
 
 if __name__ == "__main__":
     main()
