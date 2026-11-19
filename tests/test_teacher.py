@@ -91,3 +91,20 @@ def test_ask_records_format_error_without_raising():
     rec = ask(_FakeClient([tool]), b"png", "display_ciclometrico")
     assert rec["resposta"] is None and rec["erro"]
     assert ask(_FakeClient([]), b"png", "display_ciclometrico")["erro"] == "sem_ferramenta"
+
+from training.teacher import revalidate
+
+
+def test_spaces_and_unsure_transitions_are_normalized():
+    out = validate("display_ciclometrico", {"legivel": True, "leitura": "0123 4", "rotacao": 0})
+    assert out["leitura"] == "01234"
+    out = validate("display_ciclometrico", {"legivel": True, "leitura": "01[?]4", "rotacao": 0})
+    assert out["leitura"] == "01?4"
+
+
+def test_revalidate_uses_raw_answer():
+    rec = {"resposta_bruta": {"legivel": True, "leitura": "99 9", "rotacao": 0},
+           "resposta": None, "erro": "Texto principal fora do formato."}
+    out = revalidate("display_ciclometrico", rec)
+    assert out["erro"] is None and out["resposta"]["leitura"] == "999"
+    assert revalidate("display_ciclometrico", {"resposta_bruta": None})["erro"] == "sem_ferramenta"

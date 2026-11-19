@@ -25,6 +25,8 @@ TOOL_NAME = "registrar_leitura"
 _READING_RE = re.compile(r"^(?:[0-9?]|\[[0-9]{2}\])+$")  # dígitos, ? e transições como [56]
 _FUNCTION_RE = re.compile(r"^[0-9?]+$")
 _SERIAL_RE = re.compile(r"^[A-Z0-9?]+$")  # o número físico não tem "/" (o "/" é do CSV)
+_SPACES_RE = re.compile(r"\s+")                          # espaços são formatação, não conteúdo
+_UNSURE_TRANSITION_RE = re.compile(r"\[[0-9?]*\?[0-9?]*\]")  # transição com ? vale um ? só
 
 TEXT_FIELDS = {"display_digital": ("leitura", "funcao"),
                "display_ciclometrico": ("leitura",),
@@ -92,11 +94,11 @@ def tool_schema(field_class: str) -> dict:
                              "required": list(props), "additionalProperties": False}}
 
 
-def build_request(png: bytes, field_class: str) -> dict:
+def build_request(png: bytes, field_class: str, model: str = MODEL) -> dict:
     """Argumentos de messages.create: só a imagem e o texto fixo da classe."""
     image = {"type": "image", "source": {"type": "base64", "media_type": "image/png",
                                          "data": base64.b64encode(png).decode("ascii")}}
-    return {"model": MODEL, "max_tokens": MAX_TOKENS, "system": SYSTEM,
+    return {"model": model, "max_tokens": MAX_TOKENS, "system": SYSTEM,
             "tools": [tool_schema(field_class)],
             "tool_choice": {"type": "tool", "name": TOOL_NAME},
             "messages": [{"role": "user", "content": [
@@ -115,7 +117,8 @@ def validate(field_class: str, data: dict) -> dict:
     out = {"legivel": data["legivel"], "rotacao": int(data["rotacao"])}
     out.update({n: data[n] for n in BOOL_FIELDS[field_class]})
     for name in TEXT_FIELDS[field_class]:
-        text = str(data[name]).strip()
+        text = _SPACES_RE.sub("", str(data[name]))
+        text = _UNSURE_TRANSITION_RE.sub("?", text)
         if field_class == "numero_serie":
             text = text.upper()
         out[name] = text
@@ -132,10 +135,10 @@ def validate(field_class: str, data: dict) -> dict:
         raise ValueError("Função fora do formato.")
     return out
 
-def ask(client, png: bytes, field_class: str) -> dict:
+def ask(client, png: bytes, field_class: str, model: str = MODEL) -> dict:
     """Uma chamada ao professor. Devolve o registro a gravar, sem a imagem: a resposta
     bruta, a validada (ou o erro), o modelo que respondeu e os tokens."""
-    resp = client.messages.create(**build_request(png, field_class))
+    resp = client.messages.create(**build_request(png, field_class, model))
     tool = next((b for b in resp.content if getattr(b, "type", None) == "tool_use"), None)
     raw = dict(tool.input) if tool is not None else None
     record = {"modelo_resposta": resp.model, "parada": resp.stop_reason,
@@ -150,3 +153,16 @@ def ask(client, png: bytes, field_class: str) -> dict:
     except ValueError as exc:
         record["erro"] = str(exc)
     return record
+
+def revalidate(field_class: str, record: dict) -> dict:
+    """O registro com a resposta validada de novo, a partir da bruta, pelas regras atuais."""
+    rec = {**record, "resposta": None, "erro": None}
+    raw = rec.get("resposta_bruta")
+    if raw is None:
+        rec["erro"] = "sem_ferramenta"
+        return rec
+    try:
+        rec["resposta"] = validate(field_class, raw)
+    except ValueError as exc:
+        rec["erro"] = str(exc)
+    return rec

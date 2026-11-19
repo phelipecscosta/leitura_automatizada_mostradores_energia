@@ -58,3 +58,31 @@ def decimal_drum_suspect(record: dict, expected_reading: int) -> bool:
 def stable(first: dict, second: dict) -> bool:
     """Duas respostas ao mesmo pedido são idênticas (resposta validada e erro)."""
     return (first.get("resposta"), first.get("erro")) == (second.get("resposta"), second.get("erro"))
+
+KIND_ORDER = ("um_caractere", "contido", "dois_ou_mais")
+
+
+def levenshtein(a: str, b: str) -> int:
+    """Distância de edição: inserções, remoções e trocas de um caractere."""
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb)))
+        prev = cur
+    return prev[-1]
+
+
+def discord_kind(read: str, expected: str) -> str:
+    """Anatomia de uma discordância: um caractere, um contido no outro (prefixo, sufixo
+    ou dígito a mais) ou dois ou mais caracteres diferentes."""
+    if levenshtein(read, expected) == 1:
+        return "um_caractere"
+    if read in expected or expected in read:
+        return "contido"
+    return "dois_ou_mais"
+
+
+def mask(text) -> str:
+    """Forma do texto sem o conteúdo: dígito vira 9 e letra vira A."""
+    return "".join("9" if c.isdigit() else "A" if c.isalpha() else c for c in str(text))

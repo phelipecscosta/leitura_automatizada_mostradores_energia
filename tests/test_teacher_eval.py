@@ -44,3 +44,16 @@ def test_stable_compares_answer_and_error():
     a = _rec(legivel=True, leitura="0123")
     assert stable(a, _rec(legivel=True, leitura="0123"))
     assert not stable(a, _rec(legivel=True, leitura="0124"))
+
+from training.teacher_eval import discord_kind, levenshtein, mask
+
+
+def test_levenshtein_and_discord_kind():
+    assert levenshtein("12345", "12845") == 1
+    assert discord_kind("12845", "12345") == "um_caractere"
+    assert discord_kind("12345", "9912345") == "contido"
+    assert discord_kind("55555", "12345") == "dois_ou_mais"
+
+
+def test_mask_hides_content():
+    assert mask("AB12 3.4") == "AA99 9.9"
