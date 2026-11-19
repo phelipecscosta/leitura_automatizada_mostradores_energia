@@ -64,3 +64,30 @@ def test_valid_answers(cls, data):
 def test_invalid_answers(cls, data):
     with pytest.raises(ValueError):
         validate(cls, data)
+
+from types import SimpleNamespace
+
+from training.teacher import ask
+
+
+class _FakeClient:
+    def __init__(self, content):
+        self.messages = SimpleNamespace(create=lambda **kw: SimpleNamespace(
+            model="claude-haiku-5-5", stop_reason="tool_use", content=content,
+            usage=SimpleNamespace(input_tokens=700, output_tokens=30)))
+
+
+def test_ask_records_valid_answer():
+    tool = SimpleNamespace(type="tool_use", input={"legivel": True, "leitura": "0123",
+                                                    "rotacao": 0})
+    rec = ask(_FakeClient([tool]), b"png", "display_ciclometrico")
+    assert rec["erro"] is None and rec["resposta"]["leitura"] == "0123"
+    assert rec["tokens_entrada"] == 700
+
+
+def test_ask_records_format_error_without_raising():
+    tool = SimpleNamespace(type="tool_use", input={"legivel": True, "leitura": "1,2",
+                                                    "rotacao": 0})
+    rec = ask(_FakeClient([tool]), b"png", "display_ciclometrico")
+    assert rec["resposta"] is None and rec["erro"]
+    assert ask(_FakeClient([]), b"png", "display_ciclometrico")["erro"] == "sem_ferramenta"

@@ -38,3 +38,19 @@ def test_draw_is_fixed_and_follows_counts():
 def test_draw_refuses_short_pool():
     with pytest.raises(ValueError):
         draw(_cands(n_ser=1), {"numero_serie": 2}, stability_n=0)
+
+from training.reader_pilot import done_keys, pilot_jobs
+
+
+def test_jobs_repeat_only_stability_rows():
+    sample = draw(_cands(), {"display_digital": 4}, stability_n=2)
+    jobs = pilot_jobs(sample)
+    assert len(jobs) == 6 and [rep for _, rep in jobs].count(2) == 2
+
+
+def test_done_keys_reads_saved_requests(tmp_path):
+    path = tmp_path / "r.jsonl"
+    path.write_text('{"pseudonimo": "F-1", "classe": "numero_serie", "repeticao": 1}\n',
+                    encoding="utf-8")
+    assert done_keys(path) == {("F-1", "numero_serie", 1)}
+    assert done_keys(tmp_path / "nada.jsonl") == set()

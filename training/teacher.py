@@ -96,7 +96,7 @@ def build_request(png: bytes, field_class: str) -> dict:
     """Argumentos de messages.create: só a imagem e o texto fixo da classe."""
     image = {"type": "image", "source": {"type": "base64", "media_type": "image/png",
                                          "data": base64.b64encode(png).decode("ascii")}}
-    return {"model": MODEL, "max_tokens": MAX_TOKENS, "temperature": 0, "system": SYSTEM,
+    return {"model": MODEL, "max_tokens": MAX_TOKENS, "system": SYSTEM,
             "tools": [tool_schema(field_class)],
             "tool_choice": {"type": "tool", "name": TOOL_NAME},
             "messages": [{"role": "user", "content": [
@@ -131,3 +131,22 @@ def validate(field_class: str, data: dict) -> dict:
     if field_class == "display_digital" and out["funcao"] and not _FUNCTION_RE.fullmatch(out["funcao"]):
         raise ValueError("Função fora do formato.")
     return out
+
+def ask(client, png: bytes, field_class: str) -> dict:
+    """Uma chamada ao professor. Devolve o registro a gravar, sem a imagem: a resposta
+    bruta, a validada (ou o erro), o modelo que respondeu e os tokens."""
+    resp = client.messages.create(**build_request(png, field_class))
+    tool = next((b for b in resp.content if getattr(b, "type", None) == "tool_use"), None)
+    raw = dict(tool.input) if tool is not None else None
+    record = {"modelo_resposta": resp.model, "parada": resp.stop_reason,
+              "tokens_entrada": resp.usage.input_tokens,
+              "tokens_saida": resp.usage.output_tokens,
+              "resposta_bruta": raw, "resposta": None, "erro": None}
+    if raw is None:
+        record["erro"] = "sem_ferramenta"
+        return record
+    try:
+        record["resposta"] = validate(field_class, raw)
+    except ValueError as exc:
+        record["erro"] = str(exc)
+    return record
