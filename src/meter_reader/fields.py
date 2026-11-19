@@ -1,4 +1,4 @@
-"""Seleção dos campos a partir das caixas do detector (spec v17, 2.5, item 10.1; E83).
+"""Seleção dos campos a partir das caixas do detector (spec v18, 2.5, item 10.1; E83 e E86).
 
 Regras da revisão R4 do protocolo do detector (exploracao/detector_README.md, pesquisa):
 corte de confiança K (K2) -> junção das caixas de display de classes diferentes na
@@ -20,7 +20,7 @@ MERGE_IOU = 0.5  # M1: o mesmo IoU do critério de acerto (D1 c)
 _DIGITAL, _CYCLO, _KVARH, _SERIAL = (DETECTOR_CLASSES.index(c) + 1 for c in DETECTOR_CLASSES)
 _DISPLAYS = (_DIGITAL, _CYCLO, _KVARH)
 
-# Casos ambíguos da regra do kvarh (G1); o motivo da planilha é decidido na T5c.3
+# Casos ambíguos da regra do kvarh (G1); todos recebem o motivo CONSUMPTION_NOT_IDENTIFIED (E86)
 AMBIGUOUS_SAME_CLASS = "mesma_classe_sem_numero_serie"
 AMBIGUOUS_MANY = "mais_de_dois_displays"
 AMBIGUOUS_NO_CONSUMPTION = "sem_display_de_consumo"
