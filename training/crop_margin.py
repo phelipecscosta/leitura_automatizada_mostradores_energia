@@ -110,8 +110,9 @@ def kvarh_touched(cyc, mh: float, mv: float) -> float:
     w = np.array([c[2] for c in cyc])
     return float((w * hit).sum() / w.sum())
 
-
-def main() -> None:
+def dev_predictions():
+    """Fotos anotadas do desenvolvimento, predições fora da dobra da semente SEED do
+    S1_coco (na ordem das fotos) e o corte adotado na E86."""
     from meter_reader.config import get_work_dir
     from training.detector_ablation import ABLATION
     from training.detector_dataset import BOXES_SHA256, load_detector_photos
@@ -132,7 +133,14 @@ def main() -> None:
             c, p = unflatten_predictions(data)
         codes += c
         preds += p
-    preds = align(codes, preds, photos)
+    return photos, align(codes, preds, photos), cut
+
+def main() -> None:
+    from meter_reader.config import get_work_dir
+    from training.detector_ablation import ABLATION
+
+    work_dir = get_work_dir()
+    photos, preds, cut = dev_predictions()
 
     needs, weights, cyc = collect(photos, preds, cut)
     m = margins(needs, weights)
