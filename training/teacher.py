@@ -24,11 +24,14 @@ TOOL_NAME = "registrar_leitura"
 
 _READING_RE = re.compile(r"^(?:[0-9?]|\[[0-9]{2}\])+$")  # dígitos, ? e transições como [56]
 _FUNCTION_RE = re.compile(r"^[0-9?]+$")
-_SERIAL_RE = re.compile(r"^[A-Z0-9?/]+$")
+_SERIAL_RE = re.compile(r"^[A-Z0-9?]+$")  # o número físico não tem "/" (o "/" é do CSV)
 
 TEXT_FIELDS = {"display_digital": ("leitura", "funcao"),
                "display_ciclometrico": ("leitura",),
                "numero_serie": ("numero",)}
+BOOL_FIELDS = {"display_digital": ("duas_leituras",),
+               "display_ciclometrico": (),
+               "numero_serie": ()}
 
 SYSTEM = (
     "Você recebe o recorte de uma foto de um medidor de energia elétrica e responde só "
@@ -41,10 +44,13 @@ SYSTEM = (
 
 CLASS_PROMPTS = {
     "display_digital": (
-        "O recorte mostra o display de cristal líquido de um medidor digital. leitura: todos "
-        "os dígitos do valor exibido, sem pontos, vírgulas, unidades nem ícones. funcao: o "
-        "código de função exibido junto ao valor (em geral menor, num canto do display), "
-        "completo, com todos os seus dígitos, por exemplo 03, 103 ou 55; vazio se não aparecer."
+        "O recorte mostra o display de cristal líquido de um medidor digital. Alguns displays "
+        "mostram uma só leitura; outros mostram duas, uma acima da outra. leitura: todos os "
+        "dígitos da leitura de cima (ou da única), sem pontos, vírgulas, unidades nem ícones. "
+        "duas_leituras: true se o display mostrar duas leituras, uma acima da outra. funcao: o "
+        "código de função, que fica no canto superior esquerdo do display, completo, com todos "
+        "os seus dígitos (por exemplo 03, 103 ou 55); vazio se o display não mostrar código de "
+        "função."
     ),
     "display_ciclometrico": (
         "O recorte mostra a janela de tambores numerados de um medidor ciclométrico. leitura: "
@@ -54,8 +60,8 @@ CLASS_PROMPTS = {
     ),
     "numero_serie": (
         "O recorte mostra o número de série do medidor, impresso junto ao código de barras ou "
-        "numa plaqueta. numero: só letras maiúsculas, dígitos e a barra /, se houver, sem "
-        "espaços nem hífens. Ignore o código de barras e os demais números da placa."
+        "numa plaqueta. numero: só letras maiúsculas e dígitos, sem espaços, hífens nem barras. "
+        "Ignore o código de barras e os demais números da placa."
     ),
 }
 
@@ -78,6 +84,8 @@ def tool_schema(field_class: str) -> dict:
     props = {"legivel": {"type": "boolean"}}
     for name in TEXT_FIELDS[field_class]:
         props[name] = {"type": "string"}
+    for name in BOOL_FIELDS[field_class]:
+        props[name] = {"type": "boolean"}
     props["rotacao"] = {"type": "integer", "enum": list(ROTATIONS)}
     return {"name": TOOL_NAME, "description": "Registra a transcrição do recorte.",
             "input_schema": {"type": "object", "properties": props,
@@ -97,12 +105,15 @@ def build_request(png: bytes, field_class: str) -> dict:
 
 def validate(field_class: str, data: dict) -> dict:
     """Confere a resposta com regras estritas; devolve a versão normalizada ou ValueError."""
-    expected = {"legivel", "rotacao", *TEXT_FIELDS[field_class]}
+    expected = {"legivel", "rotacao", *TEXT_FIELDS[field_class], *BOOL_FIELDS[field_class]}
     if set(data) != expected:
         raise ValueError("Campos da resposta diferentes do esquema.")
     if not isinstance(data["legivel"], bool) or data["rotacao"] not in ROTATIONS:
         raise ValueError("legivel ou rotacao fora do esquema.")
+    if any(not isinstance(data[n], bool) for n in BOOL_FIELDS[field_class]):
+        raise ValueError("Campo verdadeiro ou falso fora do esquema.")
     out = {"legivel": data["legivel"], "rotacao": int(data["rotacao"])}
+    out.update({n: data[n] for n in BOOL_FIELDS[field_class]})
     for name in TEXT_FIELDS[field_class]:
         text = str(data[name]).strip()
         if field_class == "numero_serie":

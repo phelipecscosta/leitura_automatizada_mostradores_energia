@@ -17,7 +17,7 @@ def test_prepare_crop_upscales_small_fields():
 
 def test_schema_has_exactly_the_class_fields():
     props = tool_schema("display_digital")["input_schema"]["properties"]
-    assert set(props) == {"legivel", "leitura", "funcao", "rotacao"}
+    assert set(props) == {"legivel", "leitura", "funcao", "duas_leituras", "rotacao"}
     assert set(tool_schema("numero_serie")["input_schema"]["properties"]) == {
         "legivel", "numero", "rotacao"}
 
@@ -30,28 +30,36 @@ def test_request_carries_only_image_and_fixed_text():
     assert req["tool_choice"] == {"type": "tool", "name": TOOL_NAME}
 
 
+_DIG = {"legivel": True, "leitura": "0012345", "funcao": "103", "duas_leituras": False,
+        "rotacao": 0}
+
+
 @pytest.mark.parametrize("cls,data", [
-    ("display_digital", {"legivel": True, "leitura": "0012345", "funcao": "103", "rotacao": 0}),
+    ("display_digital", _DIG),
+    ("display_digital", {**_DIG, "funcao": "", "duas_leituras": True}),
     ("display_ciclometrico", {"legivel": True, "leitura": "0124[56]", "rotacao": 90}),
     ("display_ciclometrico", {"legivel": True, "leitura": "01?45", "rotacao": 0}),
-    ("numero_serie", {"legivel": True, "numero": "ab123/19", "rotacao": 180}),
-    ("display_digital", {"legivel": False, "leitura": "", "funcao": "", "rotacao": 0}),
+    ("numero_serie", {"legivel": True, "numero": "ab12319", "rotacao": 180}),
+    ("display_digital", {"legivel": False, "leitura": "", "funcao": "", "duas_leituras": False,
+                         "rotacao": 0}),
 ])
 def test_valid_answers(cls, data):
     out = validate(cls, data)
     assert out["legivel"] == data["legivel"]
     if cls == "numero_serie":
-        assert out["numero"] == "AB123/19"
+        assert out["numero"] == "AB12319"
 
 
 @pytest.mark.parametrize("cls,data", [
-    ("display_digital", {"legivel": True, "leitura": "12", "rotacao": 0}),                 # falta funcao
-    ("display_ciclometrico", {"legivel": True, "leitura": "12,5", "rotacao": 0}),          # vírgula
-    ("display_ciclometrico", {"legivel": True, "leitura": "12[5]", "rotacao": 0}),         # transição incompleta
-    ("display_ciclometrico", {"legivel": True, "leitura": "125", "rotacao": 45}),          # rotação inválida
-    ("display_ciclometrico", {"legivel": False, "leitura": "125", "rotacao": 0}),          # ilegível com texto
-    ("numero_serie", {"legivel": True, "numero": "AB-12", "rotacao": 0}),                  # hífen
-    ("display_digital", {"legivel": True, "leitura": "125", "funcao": "0A", "rotacao": 0}),
+    ("display_digital", {k: v for k, v in _DIG.items() if k != "funcao"}),        # falta funcao
+    ("display_digital", {**_DIG, "duas_leituras": "sim"}),                        # não booleano
+    ("display_digital", {**_DIG, "funcao": "0A"}),
+    ("display_ciclometrico", {"legivel": True, "leitura": "12,5", "rotacao": 0}),  # vírgula
+    ("display_ciclometrico", {"legivel": True, "leitura": "12[5]", "rotacao": 0}), # transição incompleta
+    ("display_ciclometrico", {"legivel": True, "leitura": "125", "rotacao": 45}),  # rotação inválida
+    ("display_ciclometrico", {"legivel": False, "leitura": "125", "rotacao": 0}),  # ilegível com texto
+    ("numero_serie", {"legivel": True, "numero": "AB-12", "rotacao": 0}),          # hífen
+    ("numero_serie", {"legivel": True, "numero": "123/19", "rotacao": 0}),         # barra
 ])
 def test_invalid_answers(cls, data):
     with pytest.raises(ValueError):
