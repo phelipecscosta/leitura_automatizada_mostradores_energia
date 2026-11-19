@@ -108,3 +108,8 @@ def test_revalidate_uses_raw_answer():
     out = revalidate("display_ciclometrico", rec)
     assert out["erro"] is None and out["resposta"]["leitura"] == "999"
     assert revalidate("display_ciclometrico", {"resposta_bruta": None})["erro"] == "sem_ferramenta"
+
+def test_tool_is_forced_only_where_supported():
+    assert build_request(b"png", "numero_serie")["tool_choice"]["type"] == "tool"
+    assert build_request(b"png", "numero_serie", "claude-sonnet-5-5")["tool_choice"] == {
+        "type": "auto"}

@@ -18,7 +18,8 @@ from meter_reader.crops import ROTATIONS, crop_field
 from meter_reader.preprocess import enhance
 
 MODEL = "claude-haiku-5-5"
-MAX_TOKENS = 300
+MAX_TOKENS = 1024  # folga para modelos que raciocinam antes de responder
+FORCED_TOOL_MODELS = {"claude-haiku-5-5"}  # modelos que aceitam forçar a ferramenta
 MIN_LONG_SIDE = 512   # E-a
 TOOL_NAME = "registrar_leitura"
 
@@ -100,7 +101,8 @@ def build_request(png: bytes, field_class: str, model: str = MODEL) -> dict:
                                          "data": base64.b64encode(png).decode("ascii")}}
     return {"model": model, "max_tokens": MAX_TOKENS, "system": SYSTEM,
             "tools": [tool_schema(field_class)],
-            "tool_choice": {"type": "tool", "name": TOOL_NAME},
+            "tool_choice": ({"type": "tool", "name": TOOL_NAME} if model in FORCED_TOOL_MODELS
+                            else {"type": "auto"}),
             "messages": [{"role": "user", "content": [
                 image, {"type": "text", "text": CLASS_PROMPTS[field_class]}]}]}
 
