@@ -434,12 +434,22 @@ def resumo_auditoria() -> None:
     print(f"Erro de valor: {int((m['resultado'] == 'valor_errado').sum())} de {n}; "
           f"erro só de zeros à esquerda: {int((m['resultado'] == 'so_zeros').sum())} de {n}; "
           f"rotação errada: {int((m['rotacao_errada'] == 'True').sum())} de {n}")
+    from training.teacher_eval import mask
+
+    for r in m[m["resultado"] == "valor_errado"].itertuples():
+        opt, val = json.loads(r.opcoes)[0], json.loads(r.valor)
+        diff = [k for k in opt if (_number(opt[k]) != _number(val[k]) if k == "leitura"
+                                   else opt[k] != val[k])]
+        shape = lambda d: {k: (d[k] if k == "funcao" else mask(d[k])) for k in diff}
+        print(f"  item {r.item} ({r.classe}): campos diferentes {diff}; "
+              f"professor {shape(opt)}; julgado {shape(val)}")
 
 def main() -> None:
     from training.teacher import MODEL
 
     parser = argparse.ArgumentParser(description="Piloto do professor do leitor (T6a.3).")
     sub = parser.add_subparsers(dest="comando", required=True)
+    sub.add_parser("sortear", help="sorteia e grava a amostra do piloto")
     sub.add_parser("resumo_auditoria", help="resume a auditoria dos rótulos aceitos")
     for name, text in (("enviar", "envia ao professor os pedidos pendentes"),
                        ("relatorio", "aplica as regras e grava a fila de julgamento"),
@@ -454,7 +464,6 @@ def main() -> None:
         sortear()
     elif args.comando == "resumo_auditoria":
         resumo_auditoria()
-        sortear()
     elif args.comando == "enviar":
         enviar(args.limite, args.modelo)
     elif args.comando == "relatorio":
@@ -463,6 +472,6 @@ def main() -> None:
         diagnostico(args.modelo)
     else:
         auditoria(args.modelo)
-
+        
 if __name__ == "__main__":
     main()
