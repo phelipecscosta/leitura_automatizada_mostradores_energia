@@ -97,3 +97,14 @@ def test_build_options_merges_equal_answers_and_keeps_sources():
     again, _ = build_options([("haiku", {"leitura": "01"}), ("sonnet", {"leitura": "01"}),
                               ("csv", {"leitura": "02"})], seed="x")
     assert again == opts  # ordem fixa pela semente
+
+from training.reader_labels import judged_label
+
+
+def test_judged_label_status_and_source():
+    opts = [{"leitura": "0123", "funcao": "103"}, {"leitura": "0123", "funcao": "03"}]
+    srcs = [["haiku"], ["csv", "sonnet"]]
+    assert judged_label("opcao_2", "", opts, srcs) == ("humano", opts[1], "csv+sonnet")
+    status, value, source = judged_label("outra", '{"leitura": "01?3", "funcao": "?3"}', opts, srcs)
+    assert (status, source) == ("parcial_humano", "digitado") and value["funcao"] == "?3"
+    assert judged_label("ilegivel", "", opts, srcs) == ("ilegivel_humano", None, "")

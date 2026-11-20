@@ -44,6 +44,24 @@ LISTS = {"desenvolvimento": (CROPS_NAME, CROPS_SHA256, ""),
 F2_QUEUE_NAME = "fila_f2.csv"
 SECOND_CYC_LABELS_NAME = "rotulos_leitor_segunda_ciclometricos.csv"
 SECOND_MODEL = "claude-sonnet-5-5"
+F2_JUDGMENT_NAME = "julgamento_f2.csv"
+FINAL_LABELS_NAME = "rotulos_leitor.csv"
+FINAL_COLUMNS = LABELS_COLUMNS + ("origem",)
+
+
+def judged_label(decision: str, value_json: str, options: list[dict],
+                 sources: list[list[str]]) -> tuple[str, dict | None, str]:
+    """(status, valor, fonte) de um item julgado da F-2. Com "?" em algum campo, o rótulo
+    é parcial; a fonte diz de onde veio a opção escolhida, ou "digitado"."""
+    if decision == "ilegivel":
+        return "ilegivel_humano", None, ""
+    if decision.startswith("opcao_"):
+        k = int(decision.split("_")[1]) - 1
+        value, source = options[k], "+".join(sorted(sources[k]))
+    else:
+        value, source = json.loads(value_json), "digitado"
+    partial = any("?" in str(v) for v in value.values())
+    return ("parcial_humano" if partial else "humano"), value, source
 
 
 def pad_like(value: str, template: str) -> str:
@@ -423,6 +441,73 @@ def segunda_resultados() -> None:
     n_opts = queue["opcoes"].map(lambda s: len(json.loads(s)))
     print(f"Fila F-2: {len(queue)} recortes; opções por recorte {n_opts.value_counts().to_dict()}")
 
+def final() -> None:
+    """Resume o julgamento da F-2 e grava o arquivo final de rótulos do leitor. Só contagens."""
+    from meter_reader.config import get_work_dir
+    from training.teacher import MODEL, validate
+    from training.teacher_eval import ACCEPTED
+
+    work_dir = get_work_dir()
+    text_cols = {c: str for c in ("texto", "valor", "funcao", "duas_leituras", "rotacao")}
+
+    def read(name):
+        return pd.read_csv(work_dir / name, keep_default_na=False, dtype=text_cols,
+                           float_precision="round_trip")
+
+    haiku = read(labels_name(MODEL))
+    queue = pd.read_csv(work_dir / F2_QUEUE_NAME, dtype=str, keep_default_na=False)
+    judged = pd.read_csv(work_dir / F2_JUDGMENT_NAME, dtype=str, keep_default_na=False)
+    if len(judged) != len(queue):
+        raise SystemExit(f"Julgamento da F-2 incompleto: {len(judged)} de {len(queue)}.")
+    m = queue.merge(judged, on=["item", "pseudonimo", "classe"], validate="one_to_one")
+    h_idx = haiku.set_index(["pseudonimo", "classe"])
+
+    rows, invalid, summary = [], [], []
+    for r in m.to_dict("records"):
+        status, value, source = judged_label(r["decisao"], r["valor"], json.loads(r["opcoes"]),
+                                             json.loads(r["fontes"]))
+        if value is not None:
+            try:  # a mesma validação estrita das respostas dos professores
+                validate(r["classe"], {**value, "legivel": True, "rotacao": 0,
+                                       "duas_leituras": False})
+            except ValueError:
+                invalid.append(int(r["item"]))
+                continue
+        summary.append({"grupo": r["grupo"], "status": status, "fonte": source or "-"})
+        h = h_idx.loc[(r["pseudonimo"], r["classe"])]
+        text = (value or {}).get("leitura", "")
+        rows.append({"pseudonimo": r["pseudonimo"], "classe": r["classe"],
+                     **{c: h[c] for c in ("x0", "y0", "x1", "y1", "origem_caixa")},
+                     "status": status, "texto": text, "valor": numeric_value(text),
+                     "funcao": (value or {}).get("funcao", ""),
+                     "duas_leituras": h["duas_leituras"],
+                     "rotacao": "" if r["rotacao_errada"] == "True" else h["rotacao"],
+                     "origem": "humano_f2"})
+
+    s = pd.DataFrame(summary)
+    print("F-2, status por grupo:\n" + pd.crosstab(s["grupo"], s["status"]).to_string(), "\n")
+    print("F-2, fonte da opção escolhida:\n" + pd.crosstab(s["grupo"], s["fonte"]).to_string(), "\n")
+    funcs = pd.DataFrame(rows).query("status == 'humano'")["funcao"].replace("", "(vazia)")
+    print("F-2, funções nos rótulos completos:", funcs.value_counts().to_dict())
+    print("Rotação marcada como errada:", int((m["rotacao_errada"] == "True").sum()))
+    if invalid:
+        print(f"\nItens com formato inválido (rejulgar): {sorted(invalid)}")
+        raise SystemExit("Arquivo final não gravado: corrija os itens acima.")
+
+    final_df = pd.concat([haiku[haiku["status"] == ACCEPTED].assign(origem="haiku_csv"),
+                          read(SECOND_CYC_LABELS_NAME).assign(origem="sonnet_csv"),
+                          pd.DataFrame(rows)], ignore_index=True)[list(FINAL_COLUMNS)]
+    if final_df.duplicated(["pseudonimo", "classe"]).any():
+        raise SystemExit("Recorte com dois rótulos no arquivo final.")
+    path = work_dir / FINAL_LABELS_NAME
+    final_df.to_csv(path, index=False, encoding="utf-8", lineterminator="\n")
+    print("\nArquivo final, por classe, origem e status:")
+    print(final_df.groupby(["classe", "origem", "status"]).size().to_string())
+    usable = final_df["status"].isin([ACCEPTED, "humano"])
+    print("\nRótulos completos (alvo de treino) por classe:",
+          final_df[usable]["classe"].value_counts().to_dict())
+    print("SHA-256 do arquivo final:", file_sha256(path))
+
 def main() -> None:
     from training.teacher import MODEL
 
@@ -431,6 +516,7 @@ def main() -> None:
     sub.add_parser("recortes", help="gera a lista de recortes do desenvolvimento")
     sub.add_parser("segunda_lista", help="grava a lista da segunda leitura (F-2 e ciclométricos)")
     sub.add_parser("segunda_resultados", help="rótulos novos dos ciclométricos e fila da F-2")
+    sub.add_parser("final", help="resume a F-2 e grava o arquivo final de rótulos do leitor")
     for name, text in (("enviar", "envia os recortes pendentes pela Batch API"),
                        ("coletar", "baixa os resultados das partes já processadas"),
                        ("rotulos", "aplica as regras e grava o arquivo de rótulos")):
@@ -445,6 +531,8 @@ def main() -> None:
         segunda_lista()
     elif args.comando == "segunda_resultados":
         segunda_resultados()
+    elif args.comando == "final":
+        final()
     elif args.comando == "enviar":
         enviar(args.modelo, args.lista)
     elif args.comando == "coletar":
