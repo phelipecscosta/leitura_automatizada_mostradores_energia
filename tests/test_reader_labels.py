@@ -86,7 +86,7 @@ from training.reader_labels import build_options, pad_like
 
 def test_pad_like_counts_transitions_as_one_position():
     assert pad_like("12345", "0012845") == "0012345"
-    assert pad_like("1234", "012[34]") == "01234"
+    assert pad_like("123", "012[34]") == "0123"
 
 
 def test_build_options_merges_equal_answers_and_keeps_sources():
