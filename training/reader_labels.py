@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
+import re
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -39,6 +41,26 @@ SECOND_SHA256 = "be8e40846f1c0b7aec719b3d99115ff99e8040b724f671673856094d133567d
 # Listas de recortes que podem ir ao professor: (arquivo, SHA-256, sufixo dos arquivos)
 LISTS = {"desenvolvimento": (CROPS_NAME, CROPS_SHA256, ""),
          "segunda": (SECOND_NAME, SECOND_SHA256, "_segunda")}
+F2_QUEUE_NAME = "fila_f2.csv"
+SECOND_CYC_LABELS_NAME = "rotulos_leitor_segunda_ciclometricos.csv"
+SECOND_MODEL = "claude-sonnet-5-5"
+
+
+def pad_like(value: str, template: str) -> str:
+    """Valor do CSV completado com zeros à esquerda até o comprimento da leitura transcrita
+    (cada transição [ab] conta como uma posição)."""
+    return value.zfill(len(re.sub(r"\[\d\d\]", "0", template)))
+
+
+def build_options(sourced: list[tuple[str, dict]], seed: str) -> tuple[list[dict], list[list[str]]]:
+    """Opções distintas, em ordem sorteada, e as fontes de cada uma (gravadas à parte)."""
+    merged: dict[str, tuple[dict, list[str]]] = {}
+    for source, option in sourced:
+        key = json.dumps(option, sort_keys=True, ensure_ascii=False)
+        merged.setdefault(key, (option, []))[1].append(source)
+    items = list(merged.values())
+    random.Random(seed).shuffle(items)
+    return [o for o, _ in items], [s for _, s in items]
 
 
 def responses_path(model: str, suffix: str = "") -> Path:
@@ -332,6 +354,75 @@ def segunda_lista() -> None:
           "; total:", len(rows))
     print("SHA-256 da lista:", file_sha256(path))
 
+def segunda_resultados() -> None:
+    """Rótulos novos dos ciclométricos pela segunda leitura e fila de julgamento da F-2.
+    Só contagens."""
+    from meter_reader.config import get_work_dir
+    from training.box_sample import shuffled
+    from training.group_dataset import LABEL_VERSIONS, load_group_photos
+    from training.reader_pilot import QUEUE_COLUMNS, candidate_text, csv_rows, load_records
+    from training.teacher import MODEL
+    from training.teacher_eval import ACCEPTED, label_status
+
+    work_dir = get_work_dir()
+    suffix = LISTS["segunda"][2]
+    state = load_state(work_dir / state_path(SECOND_MODEL, suffix))
+    if not state["partes"] or not all(p["coletada"] for p in state["partes"]):
+        raise SystemExit("A segunda leitura não foi toda coletada: rode o coletar.")
+    second = pd.read_csv(work_dir / SECOND_NAME, float_precision="round_trip")
+    haiku = pd.read_csv(work_dir / labels_name(MODEL), keep_default_na=False,
+                        dtype={"texto": str, "valor": str, "funcao": str},
+                        float_precision="round_trip").set_index(["pseudonimo", "classe"])
+    sonnet = load_records(work_dir / responses_path(SECOND_MODEL, suffix))
+    codes = set(second["pseudonimo"])
+    csv = csv_rows([p for p in load_group_photos(LABEL_VERSIONS["r4"]) if p.pseudonym in codes])
+
+    cyc_rows, queue_rows, status_by_group = [], [], []
+    for r in second.to_dict("records"):
+        key = (r["pseudonimo"], r["classe"])
+        rec, row = sonnet[(*key, 1)], csv[r["pseudonimo"]]
+        status = label_status(r["classe"], rec, row.expected_meter_number, row.reading)
+        status_by_group.append({"grupo": r["grupo"], "status_sonnet": status})
+        resp = rec["resposta"] or {}
+        if r["grupo"].startswith("cic_"):
+            if status == ACCEPTED:
+                text = resp["leitura"]
+                cyc_rows.append({**{c: r[c] for c in CROP_COLUMNS}, "status": ACCEPTED,
+                                 "texto": text, "valor": numeric_value(text), "funcao": "",
+                                 "duas_leituras": "", "rotacao": resp["rotacao"],
+                                 "origem": "sonnet_segunda"})
+            continue
+        h = haiku.loc[key]
+        sourced = [("haiku", {"leitura": h["texto"], "funcao": h["funcao"]})]
+        if rec["erro"] is None and resp.get("legivel"):
+            sourced.append(("sonnet", candidate_text(r["classe"], resp)))
+        if r["grupo"] == "f2_tipo2":
+            sourced.append(("csv", {"leitura": pad_like(str(row.reading), h["texto"]),
+                                    "funcao": h["funcao"]}))
+        options, sources = build_options(sourced, f"f2:opcoes:{r['pseudonimo']}")
+        queue_rows.append({**{c: r[c] for c in ("pseudonimo", "classe", "x0", "y0", "x1", "y1")},
+                           "rotacao": int(h["rotacao"]),
+                           "opcoes": json.dumps(options, ensure_ascii=False),
+                           "fontes": json.dumps(sources), "grupo": r["grupo"]})
+
+    print("Status do Sonnet por grupo:")
+    print(pd.crosstab(pd.DataFrame(status_by_group)["grupo"],
+                      pd.DataFrame(status_by_group)["status_sonnet"]).to_string(), "\n")
+
+    cyc = pd.DataFrame(cyc_rows)
+    cyc.to_csv(work_dir / SECOND_CYC_LABELS_NAME, index=False, encoding="utf-8",
+               lineterminator="\n")
+    print(f"Rótulos novos de ciclométrico (Sonnet concorda com o CSV): {len(cyc)}")
+
+    queue = pd.DataFrame(queue_rows)
+    keys = queue["pseudonimo"] + "|" + queue["classe"]
+    order = {k: i + 1 for i, k in enumerate(shuffled(keys, "f2:julgamento"))}
+    queue["item"] = keys.map(order)
+    queue = queue.sort_values("item")[list(QUEUE_COLUMNS) + ["fontes", "grupo"]]
+    queue.to_csv(work_dir / F2_QUEUE_NAME, index=False, encoding="utf-8", lineterminator="\n")
+    n_opts = queue["opcoes"].map(lambda s: len(json.loads(s)))
+    print(f"Fila F-2: {len(queue)} recortes; opções por recorte {n_opts.value_counts().to_dict()}")
+
 def main() -> None:
     from training.teacher import MODEL
 
@@ -339,6 +430,7 @@ def main() -> None:
     sub = parser.add_subparsers(dest="comando", required=True)
     sub.add_parser("recortes", help="gera a lista de recortes do desenvolvimento")
     sub.add_parser("segunda_lista", help="grava a lista da segunda leitura (F-2 e ciclométricos)")
+    sub.add_parser("segunda_resultados", help="rótulos novos dos ciclométricos e fila da F-2")
     for name, text in (("enviar", "envia os recortes pendentes pela Batch API"),
                        ("coletar", "baixa os resultados das partes já processadas"),
                        ("rotulos", "aplica as regras e grava o arquivo de rótulos")):
@@ -351,6 +443,8 @@ def main() -> None:
         recortes()
     elif args.comando == "segunda_lista":
         segunda_lista()
+    elif args.comando == "segunda_resultados":
+        segunda_resultados()
     elif args.comando == "enviar":
         enviar(args.modelo, args.lista)
     elif args.comando == "coletar":

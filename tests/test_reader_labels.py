@@ -79,3 +79,21 @@ from training.reader_labels import responses_path, state_path
 def test_paths_keep_haiku_names_and_separate_the_second_list():
     assert state_path("m").name == "lotes_m.json"
     assert responses_path("m", "_segunda").name == "respostas_m_segunda.jsonl"
+
+
+from training.reader_labels import build_options, pad_like
+
+
+def test_pad_like_counts_transitions_as_one_position():
+    assert pad_like("12345", "0012845") == "0012345"
+    assert pad_like("1234", "012[34]") == "01234"
+
+
+def test_build_options_merges_equal_answers_and_keeps_sources():
+    opts, sources = build_options([("haiku", {"leitura": "01"}), ("sonnet", {"leitura": "01"}),
+                                   ("csv", {"leitura": "02"})], seed="x")
+    assert len(opts) == 2
+    assert sorted(map(sorted, sources)) == [["csv"], ["haiku", "sonnet"]]
+    again, _ = build_options([("haiku", {"leitura": "01"}), ("sonnet", {"leitura": "01"}),
+                              ("csv", {"leitura": "02"})], seed="x")
+    assert again == opts  # ordem fixa pela semente
