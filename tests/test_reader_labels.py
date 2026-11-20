@@ -49,3 +49,26 @@ def test_numeric_value_strips_zeros_and_refuses_uncertain():
     assert numeric_value("01?45") == ""
     assert numeric_value("0124[56]") == ""
     assert numeric_value("") == ""
+
+from training.reader_labels import second_reading_rows
+
+
+def test_second_reading_rows_follows_s_b_and_takes_all_cyclometric():
+    rows = []
+    for i in range(6):   # tipo 1: outra função
+        rows.append({"pseudonimo": f"F-a{i}", "classe": "display_digital", "status": "fila_f2",
+                     "funcao": "103"})
+    for i in range(6):   # tipo 2: função 03 discordante
+        rows.append({"pseudonimo": f"F-b{i}", "classe": "display_digital", "status": "fila_f2",
+                     "funcao": "03"})
+    rows += [{"pseudonimo": "F-c1", "classe": "display_ciclometrico", "status": "discorda",
+              "funcao": ""},
+             {"pseudonimo": "F-c2", "classe": "display_ciclometrico", "status": "parcial",
+              "funcao": ""},
+             {"pseudonimo": "F-c3", "classe": "display_ciclometrico", "status": "aceito",
+              "funcao": ""}]
+    labels = pd.DataFrame(rows).assign(x0=0.0, y0=0.0, x1=1.0, y1=1.0, origem_caixa="final")
+    out = second_reading_rows(labels, {"f2_tipo1": 4, "f2_tipo2": 2})
+    assert out["grupo"].value_counts().to_dict() == {
+        "f2_tipo1": 4, "f2_tipo2": 2, "cic_discorda": 1, "cic_parcial": 1}
+    assert "F-c3" not in set(out["pseudonimo"])

@@ -32,6 +32,9 @@ MAX_PART_REQUESTS = 10_000
 
 LABELS_COLUMNS = ("pseudonimo", "classe", "x0", "y0", "x1", "y1", "origem_caixa", "status",
                   "texto", "valor", "funcao", "duas_leituras", "rotacao")
+SECOND_NAME = "recortes_segunda_leitura.csv"
+F2_COUNTS = {"f2_tipo1": 200, "f2_tipo2": 100}  # S-b
+CYC_SECOND = {"discorda": "cic_discorda", "parcial": "cic_parcial"}
 
 
 def responses_path(model: str) -> Path:
@@ -287,12 +290,49 @@ def rotulos(model: str) -> None:
                                 if str(r.get("erro", "")).startswith("lote_")))
     print("SHA-256 dos rótulos:", file_sha256(path))
 
+def second_reading_rows(labels: pd.DataFrame, counts: dict = F2_COUNTS) -> pd.DataFrame:
+    """Recortes da segunda leitura: o sorteio da F-2 (S-b) e os ciclométricos discordantes
+    ou parciais, com o grupo de origem de cada um."""
+    from training.box_sample import shuffled
+    from training.teacher_eval import FUNCTIONS_OK, QUEUE_F2
+
+    f2 = labels[labels["status"] == QUEUE_F2]
+    type1 = ~f2["funcao"].fillna("").isin(FUNCTIONS_OK)
+    parts = []
+    for group, pool in (("f2_tipo1", f2[type1]), ("f2_tipo2", f2[~type1])):
+        n = min(counts[group], len(pool))
+        codes = shuffled(pool["pseudonimo"], f"f2:{group}")[:n]
+        parts.append(pool.set_index("pseudonimo").loc[codes].reset_index().assign(grupo=group))
+    cyc = labels[labels["classe"] == "display_ciclometrico"]
+    for status, group in CYC_SECOND.items():
+        parts.append(cyc[cyc["status"] == status].assign(grupo=group))
+    out = pd.concat(parts, ignore_index=True)
+    return out[list(CROP_COLUMNS) + ["grupo"]].sort_values(["grupo", "pseudonimo"]).reset_index(
+        drop=True)
+
+
+def segunda_lista() -> None:
+    """Grava a lista da segunda leitura. Só contagens."""
+    from meter_reader.config import get_work_dir
+    from training.teacher import MODEL
+
+    work_dir = get_work_dir()
+    labels = pd.read_csv(work_dir / labels_name(MODEL), dtype={"funcao": str},
+                         keep_default_na=False, float_precision="round_trip")
+    rows = second_reading_rows(labels)
+    path = work_dir / SECOND_NAME
+    rows.to_csv(path, index=False, encoding="utf-8", lineterminator="\n")
+    print("Segunda leitura por grupo:", rows["grupo"].value_counts().to_dict(),
+          "; total:", len(rows))
+    print("SHA-256 da lista:", file_sha256(path))
+
 def main() -> None:
     from training.teacher import MODEL
 
     parser = argparse.ArgumentParser(description="Rotulagem completa do leitor (T6a.4).")
     sub = parser.add_subparsers(dest="comando", required=True)
     sub.add_parser("recortes", help="gera a lista de recortes do desenvolvimento")
+    sub.add_parser("segunda_lista", help="grava a lista da segunda leitura (F-2 e ciclométricos)")
     for name, text in (("enviar", "envia os recortes pendentes pela Batch API"),
                        ("coletar", "baixa os resultados das partes já processadas"),
                        ("rotulos", "aplica as regras e grava o arquivo de rótulos")):
@@ -301,6 +341,8 @@ def main() -> None:
     args = parser.parse_args()
     if args.comando == "recortes":
         recortes()
+    elif args.comando == "segunda_lista":
+        segunda_lista()
     elif args.comando == "enviar":
         enviar(args.modelo)
     elif args.comando == "coletar":
