@@ -114,7 +114,9 @@ def fold_masks(items: pd.DataFrame, held_out_lot: str) -> dict[str, np.ndarray]:
     return {"treino": ~evaluate & ~internal, "interno": internal, "avaliacao": evaluate}
 
 
-def main() -> None:
+def load_items() -> tuple[pd.DataFrame, dict]:
+    """Itens de treino a partir dos arquivos da pasta de trabalho, com os SHA-256
+    conferidos. Devolve os itens e as contagens."""
     from meter_reader.config import get_work_dir
     from training.build_manifest import file_sha256
     from training.group_dataset import LABEL_VERSIONS, load_group_photos
@@ -133,8 +135,11 @@ def main() -> None:
     photos = load_group_photos(LABEL_VERSIONS["r4"])
     lots = {p.pseudonym: p.lot for p in photos}
     expected = {code: row.reading for code, row in csv_rows(photos).items()}
+    return build_items(labels, expected, lots, raw)
 
-    items, counts = build_items(labels, expected, lots, raw)
+
+def main() -> None:
+    items, counts = load_items()
     print("Contagens:", counts)
     print(pd.crosstab([items["classe"], items["recorte"]],
                       [items["usa_texto"], items["usa_duas"]]).to_string())
