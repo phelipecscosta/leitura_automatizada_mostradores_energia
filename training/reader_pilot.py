@@ -444,6 +444,29 @@ def resumo_auditoria() -> None:
         print(f"  item {r.item} ({r.classe}): campos diferentes {diff}; "
               f"professor {shape(opt)}; julgado {shape(val)}")
 
+
+def cruzado(model_a: str, model_b: str) -> None:
+    """Status de cada recorte do piloto pelos dois modelos, cruzados por classe. Mostra,
+    sem custo, o que o modelo B rende onde o A não teve rótulo aceito."""
+    from meter_reader.config import get_work_dir
+    from training.teacher_eval import label_status
+
+    work_dir = get_work_dir()
+    sample = load_sample(work_dir)
+    ra = load_records(work_dir / responses_path(model_a))
+    rb = load_records(work_dir / responses_path(model_b))
+    _, csv = _context(work_dir, sample)
+    rows = []
+    for s in sample.to_dict("records"):
+        key, row = (s["pseudonimo"], s["classe"], 1), csv[s["pseudonimo"]]
+        rows.append({"classe": s["classe"],
+                     "a": label_status(s["classe"], ra[key], row.expected_meter_number, row.reading),
+                     "b": label_status(s["classe"], rb[key], row.expected_meter_number, row.reading)})
+    df = pd.DataFrame(rows)
+    for cls, g in df.groupby("classe"):
+        print(f"\n{cls} (linhas: {model_a}; colunas: {model_b})")
+        print(pd.crosstab(g["a"], g["b"]).to_string())
+
 def main() -> None:
     from training.teacher import MODEL
 
@@ -451,6 +474,9 @@ def main() -> None:
     sub = parser.add_subparsers(dest="comando", required=True)
     sub.add_parser("sortear", help="sorteia e grava a amostra do piloto")
     sub.add_parser("resumo_auditoria", help="resume a auditoria dos rótulos aceitos")
+    cross = sub.add_parser("cruzado", help="cruza os status de dois modelos no piloto")
+    cross.add_argument("--modelo-a", default=MODEL)
+    cross.add_argument("--modelo-b", default="claude-sonnet-5-5")
     for name, text in (("enviar", "envia ao professor os pedidos pendentes"),
                        ("relatorio", "aplica as regras e grava a fila de julgamento"),
                        ("diagnostico", "diagnóstico do piloto, sem custo"),
@@ -464,6 +490,8 @@ def main() -> None:
         sortear()
     elif args.comando == "resumo_auditoria":
         resumo_auditoria()
+    elif args.comando == "cruzado":
+        cruzado(args.modelo_a, args.modelo_b)
     elif args.comando == "enviar":
         enviar(args.limite, args.modelo)
     elif args.comando == "relatorio":
@@ -472,6 +500,6 @@ def main() -> None:
         diagnostico(args.modelo)
     else:
         auditoria(args.modelo)
-        
+
 if __name__ == "__main__":
     main()
