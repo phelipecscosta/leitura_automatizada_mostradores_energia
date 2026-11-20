@@ -12,7 +12,7 @@ ACCEPTED, QUEUE_F2, DISAGREE = "aceito", "fila_f2", "discorda"
 PARTIAL, ILLEGIBLE, FORMAT_ERROR = "parcial", "ilegivel", "erro_formato"
 STATUSES = (ACCEPTED, QUEUE_F2, DISAGREE, PARTIAL, ILLEGIBLE, FORMAT_ERROR)
 
-FUNCTIONS_OK = {"03", ""}  # R1: função 03, ou display sem código de função
+FUNCTIONS_OK = {"03", "003", ""}  # R1: consumo (03 ou 003, NBR 14522) ou display sem código
 _TOKEN_RE = re.compile(r"\[[0-9]{2}\]|[0-9?]")
 
 

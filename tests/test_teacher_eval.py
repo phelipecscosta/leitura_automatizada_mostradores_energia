@@ -57,3 +57,7 @@ def test_levenshtein_and_discord_kind():
 
 def test_mask_hides_content():
     assert mask("AB12 3.4") == "AA99 9.9"
+
+def test_function_003_counts_as_consumption():
+    rec = _rec(legivel=True, leitura="0012345", funcao="003", duas_leituras=False)
+    assert label_status("display_digital", rec, "ab123", 12345) == ACCEPTED

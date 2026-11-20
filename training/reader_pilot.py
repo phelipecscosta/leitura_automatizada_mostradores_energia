@@ -311,9 +311,9 @@ def diagnostico(model: str) -> None:
     from collections import Counter
 
     from meter_reader.config import get_work_dir
-    from training.teacher_eval import (ACCEPTED, DISAGREE, FORMAT_ERROR, ILLEGIBLE,
-                                       KIND_ORDER, QUEUE_F2, discord_kind, label_status,
-                                       mask, reading_values)
+    from training.teacher_eval import (ACCEPTED, DISAGREE, FORMAT_ERROR, FUNCTIONS_OK,
+                                       ILLEGIBLE, KIND_ORDER, QUEUE_F2, discord_kind,
+                                       label_status, mask, reading_values)
 
     work_dir = get_work_dir()
     sample = load_sample(work_dir)
@@ -330,7 +330,7 @@ def diagnostico(model: str) -> None:
             resp = rec["resposta"]
             if s["classe"] == "numero_serie":
                 kind = discord_kind(resp["numero"], row.expected_meter_number.upper())
-            elif s["classe"] == "display_digital" and resp["funcao"] not in ("03", ""):
+            elif s["classe"] == "display_digital" and resp["funcao"] not in FUNCTIONS_OK:
                 kind = "outra_funcao"
             else:
                 exp = str(row.reading)
