@@ -1,0 +1,221 @@
+"""Treino fora da dobra do leitor (protocolo do leitor, seções 1.2, 1.12 e R1 a R3).
+
+Um treino = configuração x lote deixado de fora x semente. Ao fim, grava na pasta de
+trabalho: os pesos da melhor época (pela M-a na divisão interna), as predições do lote
+avaliado a 0 e a 180 graus e os metadados. O arquivo de metadados é gravado por
+último e marca o treino como concluído: o comando pula o que já existe (retomada,
+E62). Só números são exibidos.
+"""
+
+from __future__ import annotations
+
+import argparse
+import copy
+import json
+import math
+import subprocess
+import time
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import torch
+from torch.utils.data import DataLoader
+
+from meter_reader.reader import CANDIDATES, Reader
+from meter_reader.reader_text import TEXT_ALPHABET, greedy_decode
+from training.reader_loss import reader_loss
+from training.reader_torch import CLASSES, BalancedBatchSampler, ReaderDataset, collate
+
+RUNS_DIR = Path("experimentos") / "leitor" / "treinos"
+SEEDS = (0, 1, 2)
+MAX_EPOCHS = 120                       # revisão R3
+WARMUP_EPOCHS = 1
+LEARNING_RATES = {"L1": 1e-3, "L2-9": 5e-4, "L2-12": 5e-4}
+WEIGHT_DECAY = 1e-4
+TRAIN_WORKERS, EVAL_WORKERS, EVAL_BATCH = 6, 2, 128
+META_NAME, WEIGHTS_NAME, PREDICTIONS_NAME = "meta.json", "pesos.pt", "predicoes.npz"
+
+
+def lr_factor(step: int, warmup: int, total: int) -> float:
+    """Aquecimento linear e depois cosseno até zero (seção 1.12)."""
+    if step < warmup:
+        return (step + 1) / warmup
+    progress = (step - warmup) / max(1, total - warmup)
+    return 0.5 * (1 + math.cos(math.pi * min(1.0, progress)))
+
+
+def text_matches(decoded: str, target: str, field_class: str) -> bool:
+    """Acerto exato da M-a: leitura por número inteiro (Z-a); número de série por texto."""
+    if field_class == "numero_serie":
+        return decoded == target
+    return decoded.isdigit() and target.isdigit() and int(decoded) == int(target)
+
+
+def run_dir(work_dir: Path, config: str, lot: str, seed: int) -> Path:
+    return work_dir / RUNS_DIR / config / f"{lot}_s{seed}"
+
+
+def _git_commit() -> str:
+    try:
+        return subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True,
+                              check=True).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        return "desconhecido"
+
+
+def evaluate_ma(model, loader, items: pd.DataFrame, device: str) -> float:
+    """M-a: média simples, pelas três classes, do acerto exato do texto."""
+    hits = {c: [] for c in CLASSES}
+    model.eval()
+    with torch.no_grad():
+        for batch in loader:
+            logits = model(batch["imagem"].to(device))["texto"].float().cpu()
+            for row, idx in enumerate(batch["indice"].tolist()):
+                r = items.iloc[idx]
+                decoded = greedy_decode(logits[row].argmax(-1).tolist(), TEXT_ALPHABET)
+                hits[r["classe"]].append(text_matches(decoded, r["texto"], r["classe"]))
+    return float(np.mean([np.mean(h) for h in hits.values() if h]))
+
+
+def predict(model, items: pd.DataFrame, cache: Path, list_sha: str, gray: bool,
+            device: str) -> dict[str, np.ndarray]:
+    """Log-probabilidades (float16) do texto e da função a 0 e a 180 graus, nos itens
+    com texto, e o logit de duas leituras em todos os itens."""
+    from meter_reader.reader_input import rotate_180, reader_tensor
+
+    data = ReaderDataset(items, cache, list_sha, train=False, gray=gray)
+    out = {"texto_0": [], "texto_180": [], "funcao_0": [], "funcao_180": [], "duas": []}
+    model.eval()
+    with torch.no_grad():
+        for start in range(0, len(data), EVAL_BATCH):
+            idx = range(start, min(start + EVAL_BATCH, len(data)))
+            crops = [data.image(i) for i in idx]
+            for angle, images in ((0, crops), (180, [rotate_180(c) for c in crops])):
+                x = torch.stack([reader_tensor(c, gray=gray) for c in images]).to(device)
+                o = model(x)
+                out[f"texto_{angle}"].append(o["texto"].float().log_softmax(-1).cpu())
+                out[f"funcao_{angle}"].append(o["funcao"].float().log_softmax(-1).cpu())
+                if angle == 0:
+                    out["duas"].append(o["duas"].float().cpu())
+    keep = items["usa_texto"].to_numpy(bool)
+    arrays = {k: torch.cat(v).numpy() for k, v in out.items()}
+    for k in ("texto_0", "texto_180", "funcao_0", "funcao_180"):
+        arrays[k] = arrays[k][keep].astype(np.float16)
+    arrays["chave_texto"] = (items.loc[keep, "pseudonimo"] + "|" + items.loc[keep, "classe"]
+                             + "|" + items.loc[keep, "recorte"]).to_numpy(str)
+    arrays["chave"] = (items["pseudonimo"] + "|" + items["classe"] + "|"
+                       + items["recorte"]).to_numpy(str)
+    return arrays
+
+
+def train_one(config: str, candidate: str, items: pd.DataFrame, lot: str, seed: int,
+              cache: Path, list_sha: str, out_dir: Path, gray: bool = False,
+              max_epochs: int = MAX_EPOCHS, device: str = "cuda") -> dict:
+    """Um treino completo; devolve os metadados gravados."""
+    from training.reader_dataset import fold_masks
+
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    masks = fold_masks(items, lot)
+    train_items = items[masks["treino"]].reset_index(drop=True)
+    internal = items[masks["interno"] & items["usa_texto"]].reset_index(drop=True)
+    evaluated = items[masks["avaliacao"]].reset_index(drop=True)
+
+    sampler = BalancedBatchSampler(train_items, seed=seed)
+    train_loader = DataLoader(ReaderDataset(train_items, cache, list_sha, train=True, gray=gray),
+                              batch_sampler=sampler, collate_fn=collate,
+                              num_workers=TRAIN_WORKERS, persistent_workers=True,
+                              pin_memory=True)
+    internal_loader = DataLoader(ReaderDataset(internal, cache, list_sha, train=False,
+                                               gray=gray),
+                                 batch_size=EVAL_BATCH, collate_fn=collate,
+                                 num_workers=EVAL_WORKERS, persistent_workers=True)
+
+    model = Reader(candidate).to(device)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=LEARNING_RATES[candidate],
+                                  weight_decay=WEIGHT_DECAY)
+    total = len(sampler) * max_epochs
+    scheduler = torch.optim.lr_scheduler.LambdaLR(
+        optimizer, lambda s: lr_factor(s, len(sampler) * WARMUP_EPOCHS, total))
+    scaler = torch.amp.GradScaler(device)
+
+    start, curve, best = time.perf_counter(), [], (-1.0, 0, None)
+    for epoch in range(1, max_epochs + 1):
+        model.train()
+        for batch in train_loader:
+            with torch.autocast(device, dtype=torch.float16):
+                out = model(batch["imagem"].to(device, non_blocking=True))
+            loss, _ = reader_loss(out, batch)
+            optimizer.zero_grad(set_to_none=True)
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+            scheduler.step()
+        ma = evaluate_ma(model, internal_loader, internal, device)
+        curve.append(round(ma, 5))
+        if ma > best[0]:   # empate: fica a época mais cedo
+            best = (ma, epoch, copy.deepcopy({k: v.cpu() for k, v in model.state_dict().items()}))
+    train_seconds = time.perf_counter() - start
+
+    model.load_state_dict(best[2])
+    out_dir.mkdir(parents=True, exist_ok=True)
+    torch.save(best[2], out_dir / WEIGHTS_NAME)
+    np.savez(out_dir / PREDICTIONS_NAME,
+             **predict(model, evaluated, cache, list_sha, gray, device))
+    meta = {"configuracao": config, "candidato": candidate, "lote_avaliado": lot,
+            "semente": seed, "cinza": gray, "epocas_max": max_epochs,
+            "epoca_escolhida": best[1], "ma_interna": round(best[0], 5), "curva_ma": curve,
+            "itens_treino": int(len(train_items)), "itens_internos": int(len(internal)),
+            "itens_avaliados": int(len(evaluated)), "segundos_treino": round(train_seconds),
+            "segundos_total": round(time.perf_counter() - start),
+            "commit_produto": _git_commit(), "torch": torch.__version__,
+            "lista_recortes_sha256": list_sha}
+    (out_dir / META_NAME).write_text(json.dumps(meta, ensure_ascii=False, indent=1),
+                                     encoding="utf-8")
+    return meta
+
+
+def run_grid(config_of: dict[str, str], items: pd.DataFrame, max_epochs: int = MAX_EPOCHS,
+             seeds=SEEDS, lots=None) -> None:
+    """Roda todos os treinos de `config_of` (configuração -> candidato), pulando os
+    concluídos. Ordem: configuração, semente, lote."""
+    from meter_reader.config import get_work_dir
+    from training.reader_cache import CACHE_DIR, CACHE_NAME
+    from training.reader_labels import CROPS_SHA256
+
+    work_dir = get_work_dir()
+    cache = work_dir / CACHE_DIR / CACHE_NAME
+    lots = lots or sorted(items["lote"].unique())
+    jobs = [(c, s, lot) for c in config_of for s in seeds for lot in lots]
+    for n, (config, seed, lot) in enumerate(jobs, 1):
+        out_dir = run_dir(work_dir, config, lot, seed)
+        if (out_dir / META_NAME).exists():
+            print(f"[{n}/{len(jobs)}] {config} {lot} s{seed}: já concluído")
+            continue
+        meta = train_one(config, config_of[config], items, lot, seed, cache, CROPS_SHA256,
+                         out_dir, max_epochs=max_epochs)
+        print(f"[{n}/{len(jobs)}] {config} {lot} s{seed}: época {meta['epoca_escolhida']} de "
+              f"{max_epochs}; M-a interna {meta['ma_interna']:.3f}; "
+              f"{meta['segundos_total'] / 60:.1f} min", flush=True)
+
+
+def main() -> None:
+    from training.reader_dataset import load_items
+
+    parser = argparse.ArgumentParser(description="Treino fora da dobra do leitor.")
+    parser.add_argument("comando", choices=["um", "candidatos"])
+    parser.add_argument("--candidato", choices=CANDIDATES, default="L1")
+    parser.add_argument("--semente", type=int, default=0)
+    args = parser.parse_args()
+
+    items, _ = load_items()
+    if args.comando == "um":
+        lot = sorted(items["lote"].unique())[0]
+        run_grid({args.candidato: args.candidato}, items, seeds=(args.semente,), lots=[lot])
+    else:
+        run_grid({c: c for c in CANDIDATES}, items)
+
+
+if __name__ == "__main__":
+    main()
