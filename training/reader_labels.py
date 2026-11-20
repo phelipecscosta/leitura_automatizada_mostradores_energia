@@ -35,11 +35,15 @@ LABELS_COLUMNS = ("pseudonimo", "classe", "x0", "y0", "x1", "y1", "origem_caixa"
 SECOND_NAME = "recortes_segunda_leitura.csv"
 F2_COUNTS = {"f2_tipo1": 200, "f2_tipo2": 100}  # S-b
 CYC_SECOND = {"discorda": "cic_discorda", "parcial": "cic_parcial"}
+SECOND_SHA256 = "be8e40846f1c0b7aec719b3d99115ff99e8040b724f671673856094d133567dc"
+# Listas de recortes que podem ir ao professor: (arquivo, SHA-256, sufixo dos arquivos)
+LISTS = {"desenvolvimento": (CROPS_NAME, CROPS_SHA256, ""),
+         "segunda": (SECOND_NAME, SECOND_SHA256, "_segunda")}
 
 
-def responses_path(model: str) -> Path:
-    """Respostas da rotulagem completa, relativo à pasta de trabalho."""
-    return LABEL_DIR / f"respostas_{model}.jsonl"
+def responses_path(model: str, suffix: str = "") -> Path:
+    """Respostas coletadas, relativo à pasta de trabalho."""
+    return LABEL_DIR / f"respostas_{model}{suffix}.jsonl"
 
 
 def labels_name(model: str) -> str:
@@ -64,10 +68,9 @@ def parse_custom_id(cid: str) -> tuple[str, str]:
     return code, {v: k for k, v in CLASS_CODES.items()}[short]
 
 
-def state_path(model: str) -> Path:
+def state_path(model: str, suffix: str = "") -> Path:
     """Estado das partes enviadas, relativo à pasta de trabalho."""
-    return LABEL_DIR / f"lotes_{model}.json"
-
+    return LABEL_DIR / f"lotes_{model}{suffix}.json"
 
 def load_state(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {"partes": []}
@@ -145,8 +148,8 @@ def recortes() -> None:
           + pd.crosstab(crops["classe"], crops["origem_caixa"]).to_string())
     print("SHA-256 da lista de recortes:", file_sha256(path))
 
-def enviar(model: str) -> None:
-    """Envia em partes, pela Batch API, os recortes ainda não enviados."""
+def enviar(model: str, lista: str = "desenvolvimento") -> None:
+    """Envia em partes, pela Batch API, os recortes ainda não enviados da lista."""
     from anthropic import Anthropic
     from dotenv import load_dotenv
     from PIL import Image
@@ -157,16 +160,18 @@ def enviar(model: str) -> None:
 
     load_dotenv()
     work_dir = get_work_dir()
-    if file_sha256(work_dir / CROPS_NAME) != CROPS_SHA256:
+    name, sha, suffix = LISTS[lista]
+    if file_sha256(work_dir / name) != sha:
         raise SystemExit("A lista de recortes não é a gerada (SHA-256 diferente).")
-    crops = pd.read_csv(work_dir / CROPS_NAME, float_precision="round_trip")
-    sp = work_dir / state_path(model)
+    crops = pd.read_csv(work_dir / name, float_precision="round_trip")
+    sp = work_dir / state_path(model, suffix)
     sp.parent.mkdir(parents=True, exist_ok=True)
     state = load_state(sp)
     sent = {cid for part in state["partes"] for cid in part["ids"]}
     pending = [r for r in crops.to_dict("records")
                if custom_id(r["pseudonimo"], r["classe"]) not in sent]
-    print(f"Recortes: {len(crops)}; já enviados: {len(sent)}; a enviar: {len(pending)}")
+    print(f"Lista {lista}: {len(crops)} recortes; já enviados: {len(sent)}; "
+          f"a enviar: {len(pending)}")
     if not pending:
         return
     paths = {p.pseudonym: p.path for p in load_group_photos(LABEL_VERSIONS["r4"])}
@@ -198,7 +203,7 @@ def enviar(model: str) -> None:
     if requests:
         submit(requests, size)
 
-def coletar(model: str) -> None:
+def coletar(model: str, lista: str = "desenvolvimento") -> None:
     """Baixa os resultados das partes já processadas; as demais só mostram o andamento."""
     from anthropic import Anthropic
     from dotenv import load_dotenv
@@ -208,9 +213,10 @@ def coletar(model: str) -> None:
 
     load_dotenv()
     work_dir = get_work_dir()
-    sp = work_dir / state_path(model)
+    suffix = LISTS[lista][2]
+    sp = work_dir / state_path(model, suffix)
     state = load_state(sp)
-    out = work_dir / responses_path(model)
+    out = work_dir / responses_path(model, suffix)
     client = Anthropic()
     for i, part in enumerate(state["partes"], 1):
         if part["coletada"]:
@@ -329,7 +335,7 @@ def segunda_lista() -> None:
 def main() -> None:
     from training.teacher import MODEL
 
-    parser = argparse.ArgumentParser(description="Rotulagem completa do leitor (T6a.4).")
+    parser = argparse.ArgumentParser(description="Rotulagem completa do leitor (T6a.4 e T6a.5).")
     sub = parser.add_subparsers(dest="comando", required=True)
     sub.add_parser("recortes", help="gera a lista de recortes do desenvolvimento")
     sub.add_parser("segunda_lista", help="grava a lista da segunda leitura (F-2 e ciclométricos)")
@@ -338,15 +344,17 @@ def main() -> None:
                        ("rotulos", "aplica as regras e grava o arquivo de rótulos")):
         p = sub.add_parser(name, help=text)
         p.add_argument("--modelo", default=MODEL)
+        if name in ("enviar", "coletar"):
+            p.add_argument("--lista", choices=sorted(LISTS), default="desenvolvimento")
     args = parser.parse_args()
     if args.comando == "recortes":
         recortes()
     elif args.comando == "segunda_lista":
         segunda_lista()
     elif args.comando == "enviar":
-        enviar(args.modelo)
+        enviar(args.modelo, args.lista)
     elif args.comando == "coletar":
-        coletar(args.modelo)
+        coletar(args.modelo, args.lista)
     else:
         rotulos(args.modelo)
 

@@ -72,3 +72,10 @@ def test_second_reading_rows_follows_s_b_and_takes_all_cyclometric():
     assert out["grupo"].value_counts().to_dict() == {
         "f2_tipo1": 4, "f2_tipo2": 2, "cic_discorda": 1, "cic_parcial": 1}
     assert "F-c3" not in set(out["pseudonimo"])
+
+from training.reader_labels import responses_path, state_path
+
+
+def test_paths_keep_haiku_names_and_separate_the_second_list():
+    assert state_path("m").name == "lotes_m.json"
+    assert responses_path("m", "_segunda").name == "respostas_m_segunda.jsonl"
