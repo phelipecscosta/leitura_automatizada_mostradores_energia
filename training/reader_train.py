@@ -29,7 +29,7 @@ from training.reader_torch import CLASSES, BalancedBatchSampler, ReaderDataset, 
 
 RUNS_DIR = Path("experimentos") / "leitor" / "treinos"
 SEEDS = (0, 1, 2)
-MAX_EPOCHS = 120                       # revisão R3
+MAX_EPOCHS = 240                       # revisões R3 e R6
 WARMUP_EPOCHS = 1
 LEARNING_RATES = {"L1": 1e-3, "L2-9": 5e-4, "L2-12": 5e-4}
 WEIGHT_DECAY = 1e-4

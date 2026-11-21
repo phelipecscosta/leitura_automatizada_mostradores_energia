@@ -54,3 +54,12 @@ def test_perda_sem_itens_de_uma_cabeca():
     batch["usa_funcao"] = torch.tensor([False, False, False])
     _, parts = reader_loss(Reader("L1")(torch.randn(3, 3, 48, 192)), batch)
     assert "funcao" not in parts
+
+def test_cabecas_auxiliares_nao_treinam_o_tronco():
+    model = Reader("L1", pretrained=False)
+    out = model(torch.randn(2, 3, 48, 192))
+    (out["funcao"].sum() + out["duas"].sum()).backward()
+    assert all(p.grad is None for p in model.backbone.parameters())
+    assert all(p.grad is None for p in model.rnn.parameters())
+    assert model.function_rnn.weight_ih_l0.grad is not None
+    assert model.two_head.weight.grad is not None
