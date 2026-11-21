@@ -24,6 +24,8 @@ INTERNAL_SEED = "leitor-divisao-interna"
 CACHE_SHA256 = "085aca5dc344c049c3d4cce3aaa6c07426bcac7a1299ad0e20cc246db036c58f"
 # Rótulos finais da ET6a (seção 1.1 do protocolo): colar o valor completo
 FINAL_LABELS_SHA256 = "577848233ea1eb76a99be3deda8d433ad09b0c764d1611b8e873b6b34cf8be13"
+# Rótulos vigentes: ET6a mais a rotulagem humana dos ciclométricos (revisão R9)
+R9_LABELS_SHA256 = "bc86c9689df6345633699699ab9274837374ac7ceea7f8be45a7d40bb6bfc3d5"
 
 ITEM_COLUMNS = ("pseudonimo", "classe", "lote", "recorte", "texto", "funcao",
                 "duas_leituras", "usa_texto", "usa_funcao", "usa_duas", "origem")
@@ -120,15 +122,16 @@ def load_items() -> tuple[pd.DataFrame, dict]:
     from meter_reader.config import get_work_dir
     from training.build_manifest import file_sha256
     from training.group_dataset import LABEL_VERSIONS, load_group_photos
-    from training.reader_labels import FINAL_LABELS_NAME, labels_name
+    from training.reader_labels import labels_name
+    from training.reader_labels_r9 import R9_LABELS_NAME
     from training.reader_pilot import csv_rows
     from training.teacher import MODEL
 
     work_dir = get_work_dir()
-    if file_sha256(work_dir / FINAL_LABELS_NAME) != FINAL_LABELS_SHA256:
-        raise SystemExit("Os rótulos do leitor não são os da ET6a (SHA-256 diferente).")
+    if file_sha256(work_dir / R9_LABELS_NAME) != R9_LABELS_SHA256:
+        raise SystemExit("Os rótulos do leitor não são os da revisão R9 (SHA-256 diferente).")
     text_cols = {c: str for c in ("texto", "valor", "funcao", "duas_leituras", "rotacao")}
-    labels = pd.read_csv(work_dir / FINAL_LABELS_NAME, keep_default_na=False,
+    labels = pd.read_csv(work_dir / R9_LABELS_NAME, keep_default_na=False,
                          dtype=text_cols, float_precision="round_trip")
     raw = pd.read_csv(work_dir / labels_name(MODEL), keep_default_na=False,
                       dtype=text_cols, float_precision="round_trip")

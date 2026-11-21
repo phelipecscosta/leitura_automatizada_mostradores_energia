@@ -127,6 +127,12 @@ def build(source_config: str, items: pd.DataFrame, device: str = "cuda") -> dict
                      + raw.loc[raw["duas_leituras"] == "True", "classe"]))
     text_items = items[items["usa_texto"]]
     targets = set(text_items["pseudonimo"] + "|" + text_items["classe"])
+    # R9: recortes julgados por humano sem alvo (F-2 e R9) não recebem pseudo-rótulo
+    from training.reader_dataset import TARGET_STATUSES
+    from training.reader_labels_r9 import R9_LABELS_NAME, human_judged_keys
+
+    labels = pd.read_csv(work_dir / R9_LABELS_NAME, dtype=str, keep_default_na=False)
+    excluded = targets | human_judged_keys(labels, TARGET_STATUSES)
     scores = score_config(work_dir, source_config, items)
     cache = load_cache(work_dir / CACHE_DIR / CACHE_NAME, CROPS_SHA256)
     candidate = source_config.split("+")[0]
@@ -134,7 +140,7 @@ def build(source_config: str, items: pd.DataFrame, device: str = "cuda") -> dict
         model = Reader(candidate, pretrained=False).to(device)
         weights = work_dir / RUNS_DIR / source_config / f"{lot}_s{SOURCE_SEED}" / WEIGHTS_NAME
         model.load_state_dict(torch.load(weights, map_location=device, weights_only=True))
-        cands = candidates(crops, lots, lot, targets, two_lines)
+        cands = candidates(crops, lots, lot, excluded, two_lines)
         pseudo = label_fold(model, cands, expected, cache,
                             fold_thresholds(scores, lot), device)
         path.parent.mkdir(parents=True, exist_ok=True)
