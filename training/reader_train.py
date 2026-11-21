@@ -119,7 +119,9 @@ def train_one(config: str, candidate: str, items: pd.DataFrame, lot: str, seed: 
     np.random.seed(seed)
     masks = fold_masks(items, lot)
     train_items = items[masks["treino"]].reset_index(drop=True)
-    internal = items[masks["interno"] & items["usa_texto"]].reset_index(drop=True)
+    # Os pseudo-rótulos (seção 1.10) nunca escolhem a época
+    internal = items[masks["interno"] & items["usa_texto"]
+                     & (items["origem"] != "pseudo")].reset_index(drop=True)
     evaluated = items[masks["avaliacao"]].reset_index(drop=True)
 
     sampler = BalancedBatchSampler(train_items, seed=seed)
@@ -176,10 +178,15 @@ def train_one(config: str, candidate: str, items: pd.DataFrame, lot: str, seed: 
     return meta
 
 
-def run_grid(config_of: dict[str, str], items: pd.DataFrame, max_epochs: int = MAX_EPOCHS,
-             seeds=SEEDS, lots=None) -> None:
-    """Roda todos os treinos de `config_of` (configuração -> candidato), pulando os
-    concluídos. Ordem: configuração, semente, lote."""
+def run_grid(config_of: dict, items: pd.DataFrame, max_epochs: int = MAX_EPOCHS,
+             seeds=SEEDS, lots=None, items_for=None) -> None:
+    """Roda todos os treinos de `config_of`, pulando os concluídos. Ordem:
+    configuração, semente, lote.
+
+    `config_of`: configuração -> candidato, ou -> {"candidato": ..., "cinza": ...}.
+    `items_for`: função lote avaliado -> itens daquela dobra (pseudo-rótulos e
+    ablações que mudam os itens de treino); sem ela, os mesmos itens em todas.
+    """
     from meter_reader.config import get_work_dir
     from training.reader_cache import CACHE_DIR, CACHE_NAME
     from training.reader_labels import CROPS_SHA256
@@ -193,12 +200,14 @@ def run_grid(config_of: dict[str, str], items: pd.DataFrame, max_epochs: int = M
         if (out_dir / META_NAME).exists():
             print(f"[{n}/{len(jobs)}] {config} {lot} s{seed}: já concluído")
             continue
-        meta = train_one(config, config_of[config], items, lot, seed, cache, CROPS_SHA256,
-                         out_dir, max_epochs=max_epochs)
+        spec = config_of[config]
+        spec = spec if isinstance(spec, dict) else {"candidato": spec}
+        fold_items = items_for(lot) if items_for else items
+        meta = train_one(config, spec["candidato"], fold_items, lot, seed, cache, CROPS_SHA256,
+                         out_dir, gray=spec.get("cinza", False), max_epochs=max_epochs)
         print(f"[{n}/{len(jobs)}] {config} {lot} s{seed}: época {meta['epoca_escolhida']} de "
               f"{max_epochs}; M-a interna {meta['ma_interna']:.3f}; "
               f"{meta['segundos_total'] / 60:.1f} min", flush=True)
-
 
 def main() -> None:
     from training.reader_dataset import load_items
