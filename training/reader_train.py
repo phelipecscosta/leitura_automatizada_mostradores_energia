@@ -33,6 +33,8 @@ MAX_EPOCHS = 240                       # revisões R3 e R6
 WARMUP_EPOCHS = 1
 LEARNING_RATES = {"L1": 1e-3, "L2-9": 5e-4, "L2-12": 5e-4}
 WEIGHT_DECAY = 1e-4
+FINE_TUNE_LR_FACTOR = 0.1              # R8: ajuste fino com 1/10 da taxa do candidato
+FINE_TUNE_EPOCHS = 60                  # R8: 1/4 das 240 épocas
 TRAIN_WORKERS, EVAL_WORKERS, EVAL_BATCH = 6, 2, 128
 META_NAME, WEIGHTS_NAME, PREDICTIONS_NAME = "meta.json", "pesos.pt", "predicoes.npz"
 
@@ -111,8 +113,14 @@ def predict(model, items: pd.DataFrame, cache: Path, list_sha: str, gray: bool,
 
 def train_one(config: str, candidate: str, items: pd.DataFrame, lot: str, seed: int,
               cache: Path, list_sha: str, out_dir: Path, gray: bool = False,
-              max_epochs: int = MAX_EPOCHS, device: str = "cuda") -> dict:
-    """Um treino completo; devolve os metadados gravados."""
+              max_epochs: int = MAX_EPOCHS, device: str = "cuda",
+              steps_per_epoch: int | None = None, init_from: Path | None = None,
+              lr: float | None = None) -> dict:
+    """Um treino completo; devolve os metadados gravados.
+
+    `init_from`: pesos de partida (ajuste fino, R8). Nesse caso, o modelo de partida é
+    avaliado antes do treino como "época 0" e pode ser o escolhido.
+    """
     from training.reader_dataset import fold_masks
 
     torch.manual_seed(seed)
@@ -124,7 +132,7 @@ def train_one(config: str, candidate: str, items: pd.DataFrame, lot: str, seed: 
                      & (items["origem"] != "pseudo")].reset_index(drop=True)
     evaluated = items[masks["avaliacao"]].reset_index(drop=True)
 
-    sampler = BalancedBatchSampler(train_items, seed=seed)
+    sampler = BalancedBatchSampler(train_items, seed=seed, steps=steps_per_epoch)
     train_loader = DataLoader(ReaderDataset(train_items, cache, list_sha, train=True, gray=gray),
                               batch_sampler=sampler, collate_fn=collate,
                               num_workers=TRAIN_WORKERS, persistent_workers=True,
@@ -134,8 +142,10 @@ def train_one(config: str, candidate: str, items: pd.DataFrame, lot: str, seed: 
                                  batch_size=EVAL_BATCH, collate_fn=collate,
                                  num_workers=EVAL_WORKERS, persistent_workers=True)
 
-    model = Reader(candidate).to(device)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=LEARNING_RATES[candidate],
+    model = Reader(candidate, pretrained=init_from is None).to(device)
+    if init_from is not None:
+        model.load_state_dict(torch.load(init_from, map_location=device, weights_only=True))
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr or LEARNING_RATES[candidate],
                                   weight_decay=WEIGHT_DECAY)
     total = len(sampler) * max_epochs
     scheduler = torch.optim.lr_scheduler.LambdaLR(
@@ -143,6 +153,9 @@ def train_one(config: str, candidate: str, items: pd.DataFrame, lot: str, seed: 
     scaler = torch.amp.GradScaler(device)
 
     start, curve, best = time.perf_counter(), [], (-1.0, 0, None)
+    if init_from is not None:   # época 0: o modelo de partida, sem ajuste
+        ma = evaluate_ma(model, internal_loader, internal, device)
+        best = (ma, 0, copy.deepcopy({k: v.cpu() for k, v in model.state_dict().items()}))
     for epoch in range(1, max_epochs + 1):
         model.train()
         for batch in train_loader:
@@ -168,7 +181,10 @@ def train_one(config: str, candidate: str, items: pd.DataFrame, lot: str, seed: 
     meta = {"configuracao": config, "candidato": candidate, "lote_avaliado": lot,
             "semente": seed, "cinza": gray, "epocas_max": max_epochs,
             "epoca_escolhida": best[1], "ma_interna": round(best[0], 5), "curva_ma": curve,
-            "itens_treino": int(len(train_items)), "itens_internos": int(len(internal)),
+            "itens_treino": int(len(train_items)), "passos_por_epoca": len(sampler),
+            "itens_internos": int(len(internal)),
+            "inicio": f"{init_from.parent.parent.name}/{init_from.parent.name}" if init_from else "",
+            "taxa": lr or LEARNING_RATES[candidate],
             "itens_avaliados": int(len(evaluated)), "segundos_treino": round(train_seconds),
             "segundos_total": round(time.perf_counter() - start),
             "commit_produto": _git_commit(), "torch": torch.__version__,
@@ -183,7 +199,9 @@ def run_grid(config_of: dict, items: pd.DataFrame, max_epochs: int = MAX_EPOCHS,
     """Roda todos os treinos de `config_of`, pulando os concluídos. Ordem:
     configuração, semente, lote.
 
-    `config_of`: configuração -> candidato, ou -> {"candidato": ..., "cinza": ...}.
+    `config_of`: configuração -> candidato, ou -> {"candidato": ..., "cinza": ...,
+    "passos_por_epoca": {lote: passos}, "inicio": configuração de partida (ajuste fino,
+    mesma dobra e mesma semente), "taxa": ..., "max_epocas": ...}.
     `items_for`: função lote avaliado -> itens daquela dobra (pseudo-rótulos e
     ablações que mudam os itens de treino); sem ela, os mesmos itens em todas.
     """
@@ -203,11 +221,19 @@ def run_grid(config_of: dict, items: pd.DataFrame, max_epochs: int = MAX_EPOCHS,
         spec = config_of[config]
         spec = spec if isinstance(spec, dict) else {"candidato": spec}
         fold_items = items_for(lot) if items_for else items
+        epochs = spec.get("max_epocas", max_epochs)
+        start = spec.get("inicio")
+        init = run_dir(work_dir, start, lot, seed) / WEIGHTS_NAME if start else None
+        if init is not None and not init.exists():
+            raise SystemExit(f"Pesos de partida ausentes: {start} {lot} s{seed}.")
         meta = train_one(config, spec["candidato"], fold_items, lot, seed, cache, CROPS_SHA256,
-                         out_dir, gray=spec.get("cinza", False), max_epochs=max_epochs)
+                         out_dir, gray=spec.get("cinza", False), max_epochs=epochs,
+                         steps_per_epoch=spec.get("passos_por_epoca", {}).get(lot),
+                         init_from=init, lr=spec.get("taxa"))
         print(f"[{n}/{len(jobs)}] {config} {lot} s{seed}: época {meta['epoca_escolhida']} de "
-              f"{max_epochs}; M-a interna {meta['ma_interna']:.3f}; "
+              f"{epochs}; M-a interna {meta['ma_interna']:.3f}; "
               f"{meta['segundos_total'] / 60:.1f} min", flush=True)
+
 
 def main() -> None:
     from training.reader_dataset import load_items

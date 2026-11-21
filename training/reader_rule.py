@@ -27,11 +27,12 @@ N_BOOT, BOOT_SEED = 2000, 0
 LATENCY_ITEMS, LATENCY_WARMUP, LATENCY_THREADS = 200, 20, 4
 
 
-def coverage_matrix(scores: pd.DataFrame, table: pd.DataFrame) -> dict[str, np.ndarray]:
+def coverage_matrix(scores: pd.DataFrame, table: pd.DataFrame,
+                    classes=CLASSES) -> dict[str, np.ndarray]:
     """Por classe: matriz (sementes x recortes) de cobertura, com os recortes na ordem
     das chaves, para parear entre candidatos."""
     out = {}
-    for cls in CLASSES:
+    for cls in classes:
         rows = []
         for seed in sorted(scores["semente"].unique()):
             part = scores[(scores["semente"] == seed) & (scores["classe"] == cls)]
@@ -44,18 +45,18 @@ def coverage_matrix(scores: pd.DataFrame, table: pd.DataFrame) -> dict[str, np.n
 
 
 def bootstrap_mc(matrices: dict[str, dict[str, np.ndarray]], n_boot: int = N_BOOT,
-                 seed: int = BOOT_SEED) -> dict[str, np.ndarray]:
+                 seed: int = BOOT_SEED, classes=CLASSES) -> dict[str, np.ndarray]:
     """M-c reamostrada de cada candidato, com os mesmos pesos de recorte para todos."""
     rng = np.random.default_rng(seed)
     configs = list(matrices)
     out = {c: np.zeros(n_boot) for c in configs}
-    for cls in CLASSES:
+    for cls in classes:
         n = matrices[configs[0]][cls].shape[1]
         weights = rng.multinomial(n, np.full(n, 1 / n), size=n_boot)   # (n_boot, n)
         for c in configs:
             cov = matrices[c][cls]                                      # (sementes, n)
             per_seed = weights @ cov.T / n                              # (n_boot, sementes)
-            out[c] += per_seed.mean(axis=1) / len(CLASSES)
+            out[c] += per_seed.mean(axis=1) / len(classes)
     return out
 
 
@@ -134,4 +135,4 @@ def main() -> None:
 if __name__ == "__main__":
     main()
 
-    
+

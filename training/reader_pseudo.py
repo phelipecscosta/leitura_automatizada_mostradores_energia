@@ -88,7 +88,8 @@ def as_items(pseudo: pd.DataFrame) -> pd.DataFrame:
     return out[list(ITEM_COLUMNS)]
 
 
-def build(source_config: str, items: pd.DataFrame, device: str = "cuda") -> dict:
+def build(source_config: str, items: pd.DataFrame, device: str = "cuda",
+          candidate: str | None = None) -> dict:
     """Pseudo-rótulos de cada dobra, gravados em `pseudo/<configuração>_<lote>.csv`
     (lidos se já existirem). Devolve lote avaliado -> pseudo-rótulos."""
     from meter_reader.config import get_work_dir
@@ -135,7 +136,7 @@ def build(source_config: str, items: pd.DataFrame, device: str = "cuda") -> dict
     excluded = targets | human_judged_keys(labels, TARGET_STATUSES)
     scores = score_config(work_dir, source_config, items)
     cache = load_cache(work_dir / CACHE_DIR / CACHE_NAME, CROPS_SHA256)
-    candidate = source_config.split("+")[0]
+    candidate = candidate or source_config.split("+")[0]
     for lot, path in missing:
         model = Reader(candidate, pretrained=False).to(device)
         weights = work_dir / RUNS_DIR / source_config / f"{lot}_s{SOURCE_SEED}" / WEIGHTS_NAME

@@ -85,28 +85,31 @@ class BalancedBatchSampler(Sampler):
     """Lotes de treino: 64 itens de texto com as classes em partes iguais, sorteados
     com reposição dentro da classe, mais 16 itens só da cabeça (R1).
 
-    Uma época tem o número de itens de texto ÷ 64 passos (seção 1.12).
+    Uma época tem o número de itens de texto ÷ 64 passos (seção 1.12), salvo quando
+    `steps` é dado (leitor por família, revisão R8). Os 64 itens de texto são
+    divididos em partes iguais entre as classes presentes.
     """
 
     def __init__(self, items: pd.DataFrame, seed: int, text_batch: int = TEXT_BATCH,
-                 head_batch: int = HEAD_BATCH):
+                 head_batch: int = HEAD_BATCH, steps: int | None = None):
         items = items.reset_index(drop=True)
         text = items["usa_texto"].to_numpy(bool)
         self.by_class = [np.flatnonzero(text & (items["classe"] == c).to_numpy())
                          for c in CLASSES]
         self.head_only = np.flatnonzero(~text & items["usa_duas"].to_numpy(bool))
         self.text_batch, self.head_batch = text_batch, head_batch
-        self.steps = max(1, int(text.sum()) // text_batch)
+        self.steps = steps or max(1, int(text.sum()) // text_batch)
         self.rng = np.random.default_rng(seed)
 
     def __len__(self) -> int:
         return self.steps
 
     def __iter__(self):
-        shares = [self.text_batch // 3 + (1 if k < self.text_batch % 3 else 0)
-                  for k in range(3)]
+        pools = [pool for pool in self.by_class if len(pool)]   # classes presentes
+        shares = [self.text_batch // len(pools) + (1 if k < self.text_batch % len(pools) else 0)
+                  for k in range(len(pools))]
         for _ in range(self.steps):
-            batch = [int(i) for pool, n in zip(self.by_class, shares) if len(pool)
+            batch = [int(i) for pool, n in zip(pools, shares)
                      for i in self.rng.choice(pool, size=n, replace=True)]
             if len(self.head_only) and self.head_batch:
                 batch += [int(i) for i in self.rng.choice(self.head_only,

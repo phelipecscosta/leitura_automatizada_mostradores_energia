@@ -21,3 +21,18 @@ def test_acerto_numerico_e_serie():
 
 def test_pasta_do_treino(tmp_path):
     assert run_dir(tmp_path, "L1", "2026-05-20", 2).parts[-2:] == ("L1", "2026-05-20_s2")
+
+
+
+def test_ajuste_fino_sem_pesos_de_partida(tmp_path, monkeypatch):
+    import pandas as pd
+    import pytest
+
+    import meter_reader.config
+    from training.reader_train import run_grid
+
+    monkeypatch.setattr(meter_reader.config, "get_work_dir", lambda: tmp_path)
+    items = pd.DataFrame({"lote": ["A"]})
+    spec = {"x+familia": {"candidato": "L2-12", "inicio": "x", "taxa": 5e-5, "max_epocas": 1}}
+    with pytest.raises(SystemExit, match="Pesos de partida ausentes"):
+        run_grid(spec, items, seeds=(0,))
