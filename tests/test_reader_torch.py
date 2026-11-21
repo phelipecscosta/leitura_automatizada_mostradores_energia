@@ -55,7 +55,7 @@ def test_conjunto_e_agrupamento(tmp_path):
     np.savez(path, **arrays)
     data = ReaderDataset(items, path, "x", train=True)
     batch = collate([data[i] for i in range(len(data))])
-    assert batch["imagem"].shape == (3, 3, 48, 384)
+    assert batch["imagem"].shape == (3, 3, 48, 192)
     assert batch["texto_comprimento"].tolist() == [4, 4, 4]
     assert batch["funcao_comprimento"].tolist() == [2, 0, 0]
     assert batch["usa_funcao"].tolist() == [True, False, False]

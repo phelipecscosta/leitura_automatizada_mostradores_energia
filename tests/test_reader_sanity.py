@@ -26,7 +26,7 @@ def test_acerto_exato():
 
 
 def test_sobreajuste_roda_em_cpu():
-    batch = {"imagem": torch.randn(2, 3, 48, 384),
+    batch = {"imagem": torch.randn(2, 3, 48, 192),
              "texto": torch.tensor(encode("12", TEXT_ALPHABET) + encode("3", TEXT_ALPHABET)),
              "texto_comprimento": torch.tensor([2, 1]),
              "funcao": torch.tensor([], dtype=torch.long),
@@ -37,4 +37,4 @@ def test_sobreajuste_roda_em_cpu():
     r = overfit("L1", batch, "cpu", steps=2, pretrained=False)
     assert set(r) == {"inicial", "final", "acerto_texto", "acerto_funcao"}
 
-    
+

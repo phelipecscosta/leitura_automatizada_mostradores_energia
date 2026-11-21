@@ -14,7 +14,7 @@ import torch
 from torch import nn
 from torchvision.models import MobileNet_V3_Small_Weights, mobilenet_v3_small
 
-from meter_reader.reader_input import READER_HEIGHT, READER_MAX_WIDTH
+from meter_reader.reader_input import READER_HEIGHT, READER_WIDTH
 from meter_reader.reader_text import FUNCTION_ALPHABET, TEXT_ALPHABET
 
 HIDDEN = 256                 # unidades por direção da BiLSTM
@@ -56,7 +56,7 @@ def _l2_backbone(depth: int, pretrained: bool) -> tuple[nn.Module, int]:
     features = mobilenet_v3_small(weights=weights).features[:depth]
     _limit_strides(features, L2_STRIDE)
     with torch.no_grad():
-        channels = features(torch.zeros(1, 3, READER_HEIGHT, READER_MAX_WIDTH)).shape[1]
+        channels = features(torch.zeros(1, 3, READER_HEIGHT, READER_WIDTH)).shape[1]
     return features, channels
 
 
@@ -73,7 +73,7 @@ class Reader(nn.Module):
             raise ValueError("Candidato do leitor desconhecido.")
         self.candidate = candidate
         with torch.no_grad():
-            _, c, h, _ = self.backbone(torch.zeros(1, 3, READER_HEIGHT, READER_MAX_WIDTH)).shape
+            _, c, h, _ = self.backbone(torch.zeros(1, 3, READER_HEIGHT, READER_WIDTH)).shape
         self.project = nn.Sequential(nn.Linear(c * h, PROJECTION), nn.ReLU(inplace=True))
         self.rnn = nn.LSTM(PROJECTION, HIDDEN, num_layers=2, bidirectional=True,
                            batch_first=True)

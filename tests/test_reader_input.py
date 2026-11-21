@@ -1,7 +1,6 @@
-import torch
 from PIL import Image
 
-from meter_reader.reader_input import (READER_HEIGHT, READER_MAX_WIDTH, fit_canvas, prepare,
+from meter_reader.reader_input import (READER_HEIGHT, READER_WIDTH, fit_canvas, prepare,
                                        reader_tensor, rotate_180, upper_band)
 
 
@@ -12,26 +11,18 @@ def _crop(width, height, color=(200, 30, 30)):
 
 
 def test_tensor_tem_forma_fixa():
-    assert reader_tensor(_crop(150, 50)).shape == (3, READER_HEIGHT, READER_MAX_WIDTH)
+    assert reader_tensor(_crop(150, 50)).shape == (3, READER_HEIGHT, READER_WIDTH)
 
 
-def test_proporcao_mantida_e_preenchimento_zero():
-    tensor = reader_tensor(_crop(100, 50))   # vira 96 x 48
-    assert tensor[:, :, 100:].abs().max() < 0.02   # preenchimento ~ média do ImageNet
-    assert tensor[:, :, :96].abs().max() > 0.5
-
-
-def test_recorte_largo_reduz_proporcionalmente():
-    canvas = fit_canvas(_crop(800, 50))      # escala 384/800: 384 x 24
-    assert canvas.size == (READER_MAX_WIDTH, READER_HEIGHT)
-    # a linha 30 já é preenchimento
-    assert canvas.getpixel((10, 30)) == canvas.getpixel((383, 47))
+def test_tamanho_fixo_sem_manter_a_proporcao():
+    for size in ((100, 50), (800, 50), (60, 90)):
+        assert fit_canvas(_crop(*size)).size == (READER_WIDTH, READER_HEIGHT)
 
 
 def test_cinza_repete_o_canal():
-    image = prepare(_crop(100, 40), gray=True)   # vira 120 x 48
-    r, g, b = (band.crop((0, 0, 120, 48)).tobytes() for band in image.split())
-    assert r == g == b    # o preenchimento fica fora: ele vira zero na normalização
+    image = prepare(_crop(100, 40), gray=True)
+    r, g, b = (band.tobytes() for band in image.split())
+    assert r == g == b
 
 
 def test_faixa_de_cima_e_rotacao():
