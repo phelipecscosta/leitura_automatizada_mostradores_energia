@@ -160,7 +160,7 @@ def train_heads(weights_path: Path, candidate: str, gray: bool, items: pd.DataFr
     optimizer = torch.optim.AdamW(heads.parameters(), lr=HEAD_LR, weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.LambdaLR(
         optimizer, lambda s: lr_factor(s, steps, steps * HEAD_EPOCHS))
-    ti = {k: torch.from_numpy(v) for k, v in t.items()}
+    ti = {k: torch.from_numpy(np.array(v)) for k, v in t.items()}   # cópia gravável
     i = tg["interno"]
     best_f, best_t, curve = (-1.0, 0, None), (-1.0, 0, None), []
     start = time.perf_counter()
