@@ -130,8 +130,10 @@ def main(device: str = "cuda") -> None:
         lows[seed] = lower_threshold(part["log_conf"].to_numpy(),
                                      (part["julgamento"] == "sim").to_numpy())
         print(f"Semente {seed}: {lows[seed]}")
-    found = [v["log_limiar"] for v in lows.values() if v["log_limiar"] is not None]
-    adopted = float(np.median(found)) if found else None
+    # R10: semente sem limiar válido conta como -inf (só "sem leitura" fica abaixo)
+    values = [v["log_limiar"] if v["log_limiar"] is not None else -math.inf
+              for v in lows.values()]
+    adopted = float(np.median(values))
     print(f"\nLimiar inferior adotado (mediana das sementes): log {adopted}"
           + (f" (probabilidade {math.exp(adopted):.4f})" if adopted is not None
              and np.isfinite(adopted) else ""))
