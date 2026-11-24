@@ -83,6 +83,76 @@ def read_sample(model, crops: list, classes: list[str], expected: list[int], gra
                         "log_csv": value_logprob(lp, str(exp), cls)})
     return out
 
+def sample_outputs(model, crops: list, gray: bool, device: str) -> list[np.ndarray]:
+    """Log-probabilidades do texto no recorte inteiro, por recorte (para o comitê)."""
+    from meter_reader.reader_input import reader_tensor
+
+    out = []
+    model.eval()
+    with torch.no_grad():
+        for crop in crops:
+            o = model(reader_tensor(crop, gray=gray).unsqueeze(0).to(device))
+            out.append(o["texto"][0].float().log_softmax(-1).cpu().numpy())
+    return out
+
+
+def ensemble_main(device: str = "cuda") -> None:
+    """R10 (a): limiar inferior recalculado com a confiança do comitê (comitê adotado).
+    Mesmo fluxo de leitura do cálculo anterior (recorte inteiro: a cabeça antiga de
+    duas leituras não disparou); o limiar é um só, porque o comitê junta as sementes."""
+    from PIL import Image
+
+    from meter_reader.config import get_work_dir
+    from meter_reader.reader import Reader
+    from meter_reader.reader_text import TEXT_ALPHABET, greedy_decode
+    from training.group_dataset import LABEL_VERSIONS, load_group_photos
+    from training.reader_cache import CACHE_DIR, CACHE_NAME, crop_key, load_cache
+    from training.reader_dataset import load_items
+    from training.reader_ensemble import ENSEMBLE, log_mean_exp
+    from training.reader_eval import score_config, sequence_logprobs, value_logprob
+    from training.reader_labels import CROPS_SHA256
+    from training.reader_metrics import config_table
+    from training.reader_pilot import csv_rows
+    from training.reader_train import RUNS_DIR, WEIGHTS_NAME
+
+    work_dir = get_work_dir()
+    judged = pd.read_csv(work_dir / LEGIBILITY_NAME, dtype=str, keep_default_na=False)
+    rows = csv_rows(load_group_photos(LABEL_VERSIONS["r4"]))
+    judged["esperado"] = judged["pseudonimo"].map(lambda p: int(rows[p].reading))
+    cache = load_cache(work_dir / CACHE_DIR / CACHE_NAME, CROPS_SHA256)
+    items, _ = load_items()
+    highs = config_table(score_config(work_dir, ENSEMBLE, items)).set_index("classe")["log_limiar"]
+
+    reads = []
+    for lot, part in judged.groupby("lote"):
+        crops = [Image.fromarray(cache[crop_key(p, c)])
+                 for p, c in zip(part["pseudonimo"], part["classe"])]
+        outs = []
+        for seed in (0, 1, 2):
+            model = Reader("L2-12", pretrained=False).to(device)
+            model.load_state_dict(torch.load(work_dir / RUNS_DIR / CONFIG / f"{lot}_s{seed}"
+                                             / WEIGHTS_NAME, map_location=device,
+                                             weights_only=True))
+            outs.append(sample_outputs(model, crops, False, device))
+        for k, r in enumerate(part.to_dict("records")):
+            lps = [o[k] for o in outs]
+            cands = {greedy_decode(lp.argmax(-1).tolist(), TEXT_ALPHABET) for lp in lps} - {""}
+            conf = {c: log_mean_exp([sequence_logprobs(lp, [c])[0] for lp in lps]) for c in cands}
+            text = max(sorted(conf), key=conf.get) if conf else ""
+            reads.append({**r, "texto_livre": text, "log_conf": conf.get(text, -math.inf),
+                          "log_csv": log_mean_exp([value_logprob(lp, str(r["esperado"]),
+                                                                 r["classe"]) for lp in lps])})
+    df = pd.DataFrame(reads)
+    low = lower_threshold(df["log_conf"].to_numpy(), (df["julgamento"] == "sim").to_numpy())
+    print(f"Comitê: {low}")
+    adopted = low["log_limiar"] if low["log_limiar"] is not None else -math.inf
+    print(f"Limiar inferior do comitê: log {adopted}"
+          + (f" (probabilidade {math.exp(adopted):.4f})" if np.isfinite(adopted) else ""))
+    df["faixa"] = [band(r["texto_livre"], r["log_conf"], r["log_csv"], r["esperado"],
+                        highs.loc[r["classe"]], adopted) for r in df.to_dict("records")]
+    print("\nFaixa x julgamento (comitê):")
+    print(pd.crosstab([df["classe"], df["julgamento"]], df["faixa"], margins=True,
+                      margins_name="total").to_string())
 
 def main(device: str = "cuda") -> None:
     from PIL import Image
@@ -150,4 +220,7 @@ def main(device: str = "cuda") -> None:
 
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) > 1 and sys.argv[1] == "comite":
+        ensemble_main()
+    else:
+        main()
