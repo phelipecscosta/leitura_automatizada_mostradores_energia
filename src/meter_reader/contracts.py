@@ -51,8 +51,8 @@ class Reason(StrEnum):
     CONSUMPTION_NOT_IDENTIFIED = "Mostrador de leitura de consumo não identificado"
     EXTRACTION_FAILURE = "Falha na extração"
     LOW_CONFIDENCE = "Confiança baixa"
-    METER_NUMBER_MISMATCH = "Número do medidor divergente do registro"
     METER_NUMBER_NOT_FOUND = "Número do medidor não localizado"  # S-c (ET6c)
+    METER_NUMBER_MISMATCH = "Número do medidor divergente do registro"
     READING_MISMATCH = "Leitura de consumo divergente do registro"
     WRONG_FUNCTION = "Função incorreta"
     HIGH_CRITICALITY = "Cliente de alta criticidade"
