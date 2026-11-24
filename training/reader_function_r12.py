@@ -97,7 +97,8 @@ def train() -> None:
 def predict_function(trunk_path: Path, heads_path: Path, candidate: str, gray: bool,
                      part: pd.DataFrame, cache: Path, list_sha: str,
                      device: str = "cuda") -> np.ndarray:
-    """Classe da função prevista por um par (tronco, cabeças), na ordem de `part`."""
+    """Probabilidades das 7 classes da função por um par (tronco, cabeças), na ordem de
+    `part`."""
     import torch
     from torch.utils.data import DataLoader
 
@@ -116,10 +117,9 @@ def predict_function(trunk_path: Path, heads_path: Path, candidate: str, gray: b
     loader = DataLoader(ReaderDataset(part, cache, list_sha, train=False, gray=gray),
                         batch_size=EVAL_BATCH, collate_fn=collate, num_workers=2)
     probs, _, index = _outputs(model, heads, loader, device)
-    out = np.empty(len(part), dtype=int)
-    out[index] = probs.argmax(1)
+    out = np.empty_like(probs)
+    out[index] = probs
     return out
-
 
 def compare() -> None:
     from meter_reader.config import get_work_dir
@@ -144,7 +144,7 @@ def compare() -> None:
             heads = work_dir / HEADS_DIR / root / meta_path.parent.name / "pesos_cabecas.pt"
             preds[name] = predict_function(meta_path.parent / WEIGHTS_NAME, heads,
                                            meta["candidato"], meta["cinza"], part, cache,
-                                           CROPS_SHA256)
+                                           CROPS_SHA256).argmax(1)
         keys = part["pseudonimo"] + "|" + part["classe"] + "|" + part["recorte"]
         for k, yy, a, b, o in zip(keys, y, preds["F-b1"], preds["R12"], part["origem"]):
             rows.append({"chave": k, "semente": meta["semente"], "y": yy, "F-b1": a, "R12": b,
