@@ -1,9 +1,17 @@
+import pickle
+
 import pandas as pd
 import torch
 from PIL import Image
 
-from training.reader_function_x4 import (X4_HEIGHT, X4_WIDTH, _runs, build_model, direct_errors,
-                                         left_band, x4_tensor)
+from training.reader_function_x4 import (X4_HEIGHT, X4_WIDTH, X4Dataset, _runs, build_model,
+                                         direct_errors, left_band, x4_tensor)
+
+def test_conjunto_de_dados_pode_ser_enviado_aos_processos_do_windows():
+    items = pd.DataFrame({"pseudonimo": ["F-1"], "classe": ["display_digital"],
+                          "recorte": ["inteiro"], "funcao": ["103"]})
+    data = pickle.loads(pickle.dumps(X4Dataset(items, "cache.npz", "sha", train=True)))
+    assert len(data) == 1 and int(data.y[0]) == 3
 
 
 def test_faixa_esquerda_e_entrada():

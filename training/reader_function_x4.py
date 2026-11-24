@@ -96,37 +96,44 @@ def _function_items(items: pd.DataFrame) -> pd.DataFrame:
     return items[items["usa_funcao"] & (items["classe"] == DIGITAL)].reset_index(drop=True)
 
 
-def _dataset(items, cache_path, list_sha, train):
-    import torch
-    from PIL import Image
-    from torch.utils.data import Dataset
+class X4Dataset:
+    """Itens de função lidos do cache, com a entrada da F-x4. Fica no nível do módulo para
+    poder ser enviado aos processos auxiliares do Windows (spawn exige pickle); o cache é
+    aberto de forma preguiçosa em cada processo."""
 
-    from meter_reader.reader_input import upper_band
-    from training.reader_augment import augment
-    from training.reader_cache import crop_key, load_cache
-    from training.reader_dataset import UPPER
-    from training.reader_heads_train import function_class
+    def __init__(self, items: pd.DataFrame, cache_path, list_sha: str, train: bool):
+        from training.reader_heads_train import function_class
 
-    class X4Dataset(Dataset):
-        def __init__(self):
-            self.items, self._cache = items.reset_index(drop=True), None
-            self.y = self.items["funcao"].map(function_class).to_numpy()
+        self.items = items.reset_index(drop=True)
+        self.cache_path, self.list_sha, self.train = cache_path, list_sha, train
+        self.y = self.items["funcao"].map(function_class).to_numpy()
+        self._cache = None
 
-        def __len__(self):
-            return len(self.items)
+    def __len__(self) -> int:
+        return len(self.items)
 
-        def __getitem__(self, i):
-            if self._cache is None:
-                self._cache = load_cache(cache_path, list_sha)
-            r = self.items.iloc[i]
-            crop = Image.fromarray(self._cache[crop_key(r["pseudonimo"], r["classe"])])
-            if r["recorte"] == UPPER:
-                crop = upper_band(crop)
-            if train:
-                crop = augment(crop, random.Random(torch.initial_seed() + i))
-            return x4_tensor(crop), int(self.y[i]), i
+    def __getitem__(self, i: int):
+        import torch
+        from PIL import Image
 
-    return X4Dataset()
+        from meter_reader.reader_input import upper_band
+        from training.reader_augment import augment
+        from training.reader_cache import crop_key, load_cache
+        from training.reader_dataset import UPPER
+
+        if self._cache is None:
+            self._cache = load_cache(self.cache_path, self.list_sha)
+        r = self.items.iloc[i]
+        crop = Image.fromarray(self._cache[crop_key(r["pseudonimo"], r["classe"])])
+        if r["recorte"] == UPPER:
+            crop = upper_band(crop)
+        if self.train:
+            crop = augment(crop, random.Random(torch.initial_seed() + i))
+        return x4_tensor(crop), int(self.y[i]), i
+
+
+def _dataset(items, cache_path, list_sha, train) -> X4Dataset:
+    return X4Dataset(items, cache_path, list_sha, train)
 
 
 def _predict(model, loader, device) -> tuple[np.ndarray, np.ndarray]:
