@@ -52,6 +52,7 @@ class Reason(StrEnum):
     EXTRACTION_FAILURE = "Falha na extração"
     LOW_CONFIDENCE = "Confiança baixa"
     METER_NUMBER_MISMATCH = "Número do medidor divergente do registro"
+    METER_NUMBER_NOT_FOUND = "Número do medidor não localizado"  # S-c (ET6c)
     READING_MISMATCH = "Leitura de consumo divergente do registro"
     WRONG_FUNCTION = "Função incorreta"
     HIGH_CRITICALITY = "Cliente de alta criticidade"
@@ -219,7 +220,8 @@ STATUS_REASONS: dict[Status, frozenset[Reason]] = {
     Status.APPROVED: frozenset(),
     Status.NEEDS_REVIEW: frozenset({
         Reason.TYPE_MISMATCH, Reason.CONSUMPTION_NOT_IDENTIFIED, Reason.LOW_CONFIDENCE,
-        Reason.METER_NUMBER_MISMATCH, Reason.READING_MISMATCH, Reason.WRONG_FUNCTION,
+        Reason.METER_NUMBER_NOT_FOUND, Reason.METER_NUMBER_MISMATCH,
+        Reason.READING_MISMATCH, Reason.WRONG_FUNCTION,
         Reason.HIGH_CRITICALITY, Reason.OUT_OF_PARAMETERS,
     }),
     Status.REJECTED_OTHER: frozenset({Reason.NOT_A_METER}),

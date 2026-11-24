@@ -29,6 +29,7 @@ SPEC_REASONS_IN_PIPELINE_ORDER = [
     "Mostrador de leitura de consumo não identificado",
     "Falha na extração",
     "Confiança baixa",
+    "Número do medidor não localizado",
     "Número do medidor divergente do registro",
     "Leitura de consumo divergente do registro",
     "Função incorreta",
