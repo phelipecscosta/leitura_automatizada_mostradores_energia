@@ -31,6 +31,20 @@ CONSUMPTION = ("vazio", "03", "003")
 OUT_DIR = Path("experimentos") / "leitor"
 CURVE_NAME = "funcao_r15_curva.csv"
 RESULT_NAME = "funcao_r15.json"
+POPULATION_NAME = "funcao_r15_populacao.csv"
+
+
+def breakdown(p_cons, high, nc, judged, unjudged, t: float) -> dict:
+    """Abertura dos erros num limiar: diretos, julgados aprovados (m), não consumo entre
+    eles (k), não julgados aprovados (u) e erros projetados (R15-b)."""
+    p_cons, high = np.asarray(p_cons, float), np.asarray(high, bool)
+    nc, judged, unjudged = (np.asarray(v, bool) for v in (nc, judged, unjudged))
+    approved = high & (p_cons >= t)
+    direct = int((approved & nc & ~unjudged).sum())
+    return {"limiar": round(float(t), 4), "diretos": direct,
+            "m": int((approved & judged).sum()), "k": int((approved & judged & nc).sum()),
+            "u": int((approved & unjudged).sum()),
+            "projetados": errors_at(approved, nc, judged, unjudged) - direct}
 
 
 def errors_at(approved, nc, judged, unjudged) -> int:
@@ -210,6 +224,8 @@ def main(device: str = "cuda") -> None:
     curve = risk_curve(pop["consumo"], pop["alta"], pop["nc"], pop["julgado"],
                        pop["nao_julgado"], thresholds)
     curve.to_csv(work_dir / OUT_DIR / CURVE_NAME, index=False)
+    pop[["pseudonimo", "lote", "nc", "julgado", "nao_julgado", "alta", "d1", "consumo"]].to_csv(
+        work_dir / OUT_DIR / POPULATION_NAME, index=False)
     chosen = choose(curve)
     kept = 0.0 if chosen is None else chosen["consumo_mantido"]
     result = {"limiar_d1_por_lote": d1, "escolhido": chosen, "gatilho_g_a": kept < MIN_KEPT,
@@ -227,6 +243,14 @@ def main(device: str = "cuda") -> None:
     print("\nEscolhido (Y-f2):", "nenhum limiar" if chosen is None else
           {k: round(v, 4) if isinstance(v, float) else v for k, v in chosen.items()})
     print("Gatilho G-a (F-x4):", result["gatilho_g_a"])
+    print("\nAbertura dos erros (a cada 20 quantis):")
+    print(pd.DataFrame([breakdown(pop["consumo"], pop["alta"], pop["nc"], pop["julgado"],
+                                  pop["nao_julgado"], t) for t in curve["limiar"].iloc[::20]])
+          .to_string(index=False))
+    sel = pop["julgado"] & pop["nc"]
+    print("Julgados de não consumo (Q-a): consumo previsto",
+          [round(v, 3) for v in pop.loc[sel, "consumo"]], "; faixa alta",
+          list(pop.loc[sel, "alta"]))
 
     # B10-b nos ciclométricos (só relato)
     comite = pd.read_csv(work_dir / EVAL_DIR / f"{ENSEMBLE}.csv", dtype={"livre": str},

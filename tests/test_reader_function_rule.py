@@ -1,7 +1,13 @@
 import numpy as np
 
-from training.reader_function_rule import FALLBACK_RATE, choose, errors_at, risk_curve
-
+from training.reader_function_rule import (FALLBACK_RATE, breakdown, choose, errors_at,
+                                           risk_curve)
+def test_abertura_soma_os_erros():
+    p, high = [0.9, 0.9, 0.9, 0.9], [1, 1, 1, 1]
+    nc, judged, unjudged = [1, 1, 0, 0], [0, 1, 1, 0], [0, 0, 0, 1]
+    b = breakdown(p, high, nc, judged, unjudged, 0.5)
+    assert (b["diretos"], b["m"], b["k"], b["u"]) == (2, 2, 1, 1)
+    assert b["diretos"] + b["projetados"] == errors_at([1, 1, 1, 1], nc, judged, unjudged)
 
 def test_erros_com_a_razao_dos_julgados():
     #            julgados (4)          não julgados (3)    F-2 (1)
