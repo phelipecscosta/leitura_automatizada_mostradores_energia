@@ -2,7 +2,7 @@
 
 Um treino = configuração x lote deixado de fora x semente. Ao fim, grava na pasta de
 trabalho: os pesos da melhor época (pela M-a na divisão interna), as predições do lote
-avaliado a 0 e a 180 graus e os metadados. O arquivo de metadados é gravado por
+avaliado (só a 0 grau, E99) e os metadados. O arquivo de metadados é gravado por
 último e marca o treino como concluído: o comando pula o que já existe (retomada,
 E62). Só números são exibidos.
 """
@@ -82,27 +82,25 @@ def evaluate_ma(model, loader, items: pd.DataFrame, device: str) -> float:
 
 def predict(model, items: pd.DataFrame, cache: Path, list_sha: str, gray: bool,
             device: str) -> dict[str, np.ndarray]:
-    """Log-probabilidades (float16) do texto e da função a 0 e a 180 graus, nos itens
-    com texto, e o logit de duas leituras em todos os itens."""
-    from meter_reader.reader_input import rotate_180, reader_tensor
+    """Log-probabilidades (float16) do texto e da função, só a 0 grau (E99), nos itens
+    com texto, e o logit de duas leituras em todos os itens. As chaves mantêm o sufixo
+    "_0" para que as predições já gravadas sigam legíveis pelo mesmo código."""
+    from meter_reader.reader_input import reader_tensor
 
     data = ReaderDataset(items, cache, list_sha, train=False, gray=gray)
-    out = {"texto_0": [], "texto_180": [], "funcao_0": [], "funcao_180": [], "duas": []}
+    out = {"texto_0": [], "funcao_0": [], "duas": []}
     model.eval()
     with torch.no_grad():
         for start in range(0, len(data), EVAL_BATCH):
             idx = range(start, min(start + EVAL_BATCH, len(data)))
-            crops = [data.image(i) for i in idx]
-            for angle, images in ((0, crops), (180, [rotate_180(c) for c in crops])):
-                x = torch.stack([reader_tensor(c, gray=gray) for c in images]).to(device)
-                o = model(x)
-                out[f"texto_{angle}"].append(o["texto"].float().log_softmax(-1).cpu())
-                out[f"funcao_{angle}"].append(o["funcao"].float().log_softmax(-1).cpu())
-                if angle == 0:
-                    out["duas"].append(o["duas"].float().cpu())
+            x = torch.stack([reader_tensor(data.image(i), gray=gray) for i in idx]).to(device)
+            o = model(x)
+            out["texto_0"].append(o["texto"].float().log_softmax(-1).cpu())
+            out["funcao_0"].append(o["funcao"].float().log_softmax(-1).cpu())
+            out["duas"].append(o["duas"].float().cpu())
     keep = items["usa_texto"].to_numpy(bool)
     arrays = {k: torch.cat(v).numpy() for k, v in out.items()}
-    for k in ("texto_0", "texto_180", "funcao_0", "funcao_180"):
+    for k in ("texto_0", "funcao_0"):
         arrays[k] = arrays[k][keep].astype(np.float16)
     arrays["chave_texto"] = (items.loc[keep, "pseudonimo"] + "|" + items.loc[keep, "classe"]
                              + "|" + items.loc[keep, "recorte"]).to_numpy(str)

@@ -1,8 +1,7 @@
 from PIL import Image
 
 from meter_reader.reader_input import (READER_HEIGHT, READER_WIDTH, fit_canvas, prepare,
-                                       reader_tensor, rotate_180, upper_band)
-
+                                       reader_tensor, upper_band)
 
 def _crop(width, height, color=(200, 30, 30)):
     image = Image.new("RGB", (width, height), color)
@@ -24,11 +23,8 @@ def test_cinza_repete_o_canal():
     r, g, b = (band.tobytes() for band in image.split())
     assert r == g == b
 
-
-def test_faixa_de_cima_e_rotacao():
-    crop = _crop(100, 40)
-    assert upper_band(crop).size == (100, 22)
-    assert rotate_180(crop).getpixel((99, 39)) == (0, 0, 0)
+def test_faixa_de_cima():
+    assert upper_band(_crop(100, 40)).size == (100, 22)
 
 
 def test_recorte_sem_area():

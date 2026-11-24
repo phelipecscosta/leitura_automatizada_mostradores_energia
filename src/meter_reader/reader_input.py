@@ -26,11 +26,6 @@ def upper_band(crop: Image.Image) -> Image.Image:
     return crop.crop((0, 0, width, max(1, round(height * UPPER_BAND))))
 
 
-def rotate_180(crop: Image.Image) -> Image.Image:
-    """Recorte girado 180 graus (orientação O-b reduzida)."""
-    return crop.transpose(Image.Transpose.ROTATE_180)
-
-
 def fit_canvas(crop: Image.Image) -> Image.Image:
     """Redimensiona para 48 x 192, sem manter a proporção (revisão R4).
 
