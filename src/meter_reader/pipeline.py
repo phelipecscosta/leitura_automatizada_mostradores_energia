@@ -39,7 +39,8 @@ class DetectorStage(Protocol):
 
 
 class ReaderStage(Protocol):
-    """Leitor e validadores (spec 2.5, itens 11, 13 e 14), numa tomada até a ET6."""
+    """Leitor e validadores (spec 2.5, itens 11, 13 e 14). No produto,
+    meter_reader.reading.ArtifactReader (T6c.6)."""
 
     version: str  # vai para a aba Execução
 
@@ -50,8 +51,8 @@ class ReaderStage(Protocol):
 class ProvisionalReading:
     """Leitor provisório fail-safe (D2 b): toda imagem que chega a ele vai para verificação.
 
-    Não lê nada; existe para que o veículo funcione de ponta a ponta antes do leitor
-    (ET6). Nunca aprova uma imagem.
+    Não lê nada; existiu para que o veículo funcionasse de ponta a ponta antes do leitor
+    (ET6). Desde a T6c.6, serve só de leitor falso nos testes. Nunca aprova uma imagem.
     """
 
     version = "provisorio"

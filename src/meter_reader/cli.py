@@ -3,7 +3,7 @@
     meter-reader analisar --fotos <pasta> --base <BaseExtracao_DDMMAAAA_Dia.csv> [--complementar]
 
 Sequência: lê e valida o BaseExtracao inteiro -> confere a pasta das fotos e
-o lote -> carrega a triagem e o detector -> decide a linha de cada imagem -> grava a
+o lote -> carrega a triagem, o detector e o leitor -> decide a linha de cada imagem -> grava a
 planilha -> move as imagens -> lista as cópias antigas -> exibe o resumo.
 A planilha é gravada antes da movimentação: se mover falhar no meio, as fotos
 que ficaram na origem são refeitas com --complementar.
@@ -25,7 +25,7 @@ from pathlib import Path
 
 from meter_reader import folders
 from meter_reader.config import (ConfigError, get_detector_artifact, get_output_dir,
-                                 get_triage_artifact, inside_data_dir)
+                                 get_reader_artifact, get_triage_artifact, inside_data_dir)
 from meter_reader.contracts import ControlRow
 from meter_reader.control_sheet import (PARAMETERS_DISABLED, ControlFileError, ExecutionRecord,
                                         RunKind, control_file_name, save_control)
@@ -34,6 +34,8 @@ from meter_reader.feedback import Summary, format_feedback
 from meter_reader.detector import PRODUCT_DETECTOR_SHA256, DetectorArtifactError, load_detector
 from meter_reader.pipeline import (DetectorStage, ProvisionalReading, ReaderStage, TriageStage,
                                    process_images)
+from meter_reader.reader_model import PRODUCT_READER_SHA256, ReaderArtifactError, load_reader
+from meter_reader.reading import ArtifactReader
 from meter_reader.triage import PRODUCT_TRIAGE_SHA256, TriageArtifactError, load_triage
 
 EXIT_OK, EXIT_INPUT, EXIT_ALREADY_PROCESSED = 0, 2, 3
@@ -42,7 +44,7 @@ EXIT_OK, EXIT_INPUT, EXIT_ALREADY_PROCESSED = 0, 2, 3
 # próprio BaseExtracao) são ignorados e nunca movidos
 IMAGE_SUFFIXES = frozenset({".jpg", ".jpeg", ".png"})
 
-# O perfil GPU ainda não existe (E06): a triagem é carregada em CPU
+# O perfil GPU ainda não existe (E06): a triagem, o detector e o leitor rodam em CPU (V-a)
 EXECUTION_PROFILE = "CPU"
 
 # Texto da spec (2.4, ação 3.5), seguido da instrução própria do terminal
@@ -93,7 +95,7 @@ def check_source(source: Path, output_root: Path) -> None:
 def analyze(photos_dir: Path | str, base_path: Path | str, *, complementary: bool,
             output_root: Path, triage_factory: Callable[[], TriageStage],
             triage_version: str, detector_factory: Callable[[], DetectorStage],
-            detector_version: str, reader: ReaderStage,
+            detector_version: str, reader_factory: Callable[[], ReaderStage],
             now: Callable[[], datetime] = datetime.now) -> RunResult:
     """Executa um processamento completo ou complementar."""
     batch = read_extraction(base_path)  # falha cedo, antes de tocar em qualquer foto
@@ -111,6 +113,7 @@ def analyze(photos_dir: Path | str, base_path: Path | str, *, complementary: boo
     if not images:
         raise InputError("A pasta indicada não contém imagens.")
 
+    reader = reader_factory()
     rows = process_images(images, batch, triage_factory(), detector_factory(), reader)
 
     kind = RunKind.COMPLEMENTARY if exists else RunKind.FULL
@@ -136,6 +139,10 @@ def analyze(photos_dir: Path | str, base_path: Path | str, *, complementary: boo
         provisional=isinstance(reader, ProvisionalReading))
     return RunResult(rows, control_path, kind, feedback)
 
+def _load_reader(path: Path) -> ReaderStage:
+    """Leitor do produto: o artefato conferido pelo SHA-256, em CPU (V-a)."""
+    return ArtifactReader(load_reader(path, PRODUCT_READER_SHA256),
+                          f"L2-12 {PRODUCT_READER_SHA256[:12]}")
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="meter-reader",
@@ -158,18 +165,19 @@ def main(argv: list[str] | None = None) -> int:
         output_root = get_output_dir()
         triage_artifact = get_triage_artifact()
         detector_artifact = get_detector_artifact()
+        reader_artifact = get_reader_artifact()
         result = analyze(
             args.fotos, args.base, complementary=args.complementar, output_root=output_root,
             triage_factory=lambda: load_triage(triage_artifact, PRODUCT_TRIAGE_SHA256),
             triage_version=f"C4 {PRODUCT_TRIAGE_SHA256[:12]}",
             detector_factory=lambda: load_detector(detector_artifact, PRODUCT_DETECTOR_SHA256),
             detector_version=f"S1_coco {PRODUCT_DETECTOR_SHA256[:12]}",
-            reader=ProvisionalReading())
+            reader_factory=lambda: _load_reader(reader_artifact))
     except AlreadyProcessedError as exc:
         print(exc, file=sys.stderr)
         return EXIT_ALREADY_PROCESSED
     except (ConfigError, ExtractionFileError, ControlFileError, TriageArtifactError,
-            DetectorArtifactError, InputError) as exc:
+            DetectorArtifactError, ReaderArtifactError, InputError) as exc:
         print(f"Erro: {exc}", file=sys.stderr)
         return EXIT_INPUT
     elapsed = time.perf_counter() - start

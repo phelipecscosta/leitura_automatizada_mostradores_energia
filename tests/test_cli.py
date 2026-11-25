@@ -39,6 +39,16 @@ class FakeDetector:
         box = np.array([[10, 10, 40, 20]], np.float32)
         return DetectionResult(box, np.array([0.9], np.float32), np.array([1]), 0.9, True,
                                "digital", FieldSelection("digital", box[0], None))
+class FakeReaderModel:
+    """Lê "10" no display e devolve a função 03; o FakeDetector não tem número de série."""
+
+    log_low, function_threshold = -1.6, 0.7258
+
+    def read(self, crops, field_class):
+        from meter_reader.reader_model import ReaderOutput
+        from meter_reader.reader_text import FUNCTION_CLASSES
+        f = {c: float(c == "03") for c in FUNCTION_CLASSES}
+        return [ReaderOutput("10", -0.1, 0.9, f, False)]
 
 def _image(path: Path) -> None:
     rng = np.random.default_rng(0)
@@ -69,7 +79,7 @@ def _run(photos, out, complementary=False, calls=None):
     return cli.analyze(photos, photos / BASE_NAME, complementary=complementary,
                        output_root=out, triage_factory=factory, triage_version="C4 teste",
                        detector_factory=FakeDetector, detector_version="teste",
-                       reader=ProvisionalReading(), now=lambda: datetime(2026, 11, 10, 16))
+                       reader_factory=ProvisionalReading, now=lambda: datetime(2026, 11, 10, 16))
 
 
 def test_full_run_moves_saves_and_reports(env) -> None:
@@ -138,7 +148,7 @@ def test_source_inside_output_is_refused(env) -> None:
         cli.analyze(inside, inside / BASE_NAME, complementary=False, output_root=out,
                     triage_factory=FakeTriage, triage_version="v",
                     detector_factory=FakeDetector, detector_version="v",
-                    reader=ProvisionalReading())
+                    reader_factory=ProvisionalReading)
 
 
 def test_source_inside_original_base_is_refused(env, monkeypatch) -> None:
@@ -182,6 +192,8 @@ def configured(env, monkeypatch):
     monkeypatch.setattr(cli, "load_triage", lambda path, sha: FakeTriage())
     monkeypatch.setattr(cli, "get_detector_artifact", lambda: Path("detector.pt"))
     monkeypatch.setattr(cli, "load_detector", lambda path, sha: FakeDetector())
+    monkeypatch.setattr(cli, "get_reader_artifact", lambda: Path("leitor.pt"))
+    monkeypatch.setattr(cli, "load_reader", lambda path, sha: FakeReaderModel())
     return photos, out
 
 
@@ -215,3 +227,17 @@ def test_main_config_error_exit_code(env, monkeypatch, capsys) -> None:
     monkeypatch.setattr(cli, "get_output_dir", missing)
     assert cli.main(_argv(photos)) == cli.EXIT_INPUT
     assert "não definida" in capsys.readouterr().err
+
+
+
+def test_main_usa_o_leitor_real(configured, capsys) -> None:
+    from meter_reader.reader_model import PRODUCT_READER_SHA256
+
+    photos, out = configured
+    assert cli.main(_argv(photos)) == cli.EXIT_OK
+    assert "provisória" not in capsys.readouterr().out
+    rows, executions = read_control(out / "20052026" / "Controle_20052026.xlsx")
+    assert executions[0].model_versions.endswith(f"leitura L2-12 {PRODUCT_READER_SHA256[:12]}")
+    # sem número de série, o medidor1 vai para Verificar com o motivo do 13.1
+    reasons = {r.photo_name: r.reason.value for r in rows if r.reason is not None}
+    assert reasons["medidor1.jpg"] == "Número do medidor não localizado"
