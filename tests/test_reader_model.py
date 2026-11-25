@@ -10,8 +10,8 @@ from meter_reader.reader import Reader
 from meter_reader.reader_heads import Heads, trunk_features
 from meter_reader.reader_input import upper_band
 from meter_reader.reader_model import (READER_ARTIFACT_FORMAT, ReaderArtifactError, ReaderModel,
-                                       committee_read, load_reader, log_mean_exp,
-                                       sequence_logprob)
+                                       committee_read, exact_gpu_math, load_reader,
+                                       log_mean_exp, sequence_logprob)
 from meter_reader.reader_text import FUNCTION_CLASSES, TEXT_ALPHABET
 
 LIMITS = {"d1_logit": 3.0, "limiar_inferior_log": math.log(0.2), "temperatura_texto": 1.4,
@@ -104,3 +104,19 @@ def test_carga_confere_sha_e_formato(tmp_path):
 def test_formato_igual_ao_do_treino():
     from training.reader_final import ARTIFACT_FORMAT
     assert ARTIFACT_FORMAT == READER_ARTIFACT_FORMAT
+
+
+def test_gpu_sem_tf32():
+    torch.backends.cudnn.allow_tf32 = True
+    torch.backends.cuda.matmul.allow_tf32 = True
+    exact_gpu_math()
+    assert not torch.backends.cudnn.allow_tf32
+    assert not torch.backends.cuda.matmul.allow_tf32
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="sem GPU")
+def test_leitor_na_gpu_desliga_o_tf32():
+    torch.backends.cudnn.allow_tf32 = True
+    trunks, heads = _model()
+    ReaderModel(trunks, heads, LIMITS, device="cuda")
+    assert not torch.backends.cudnn.allow_tf32

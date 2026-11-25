@@ -11,7 +11,8 @@
 - Digital (D1 e R12): a média dos logits de duas leituras no recorte inteiro decide;
   se dispara, o texto e a função saem da faixa de cima. A função é a média das
   probabilidades das 3 cabeças.
-Roda em CPU por padrão, em precisão simples.
+Roda em CPU por padrão, em precisão simples. Na GPU, o TF32 fica desligado (G-a): as
+decisões são as mesmas da CPU (paridade da T6c.5).
 """
 
 from __future__ import annotations
@@ -40,7 +41,11 @@ DIGITAL = "display_digital"
 _THRESHOLD_KEYS = ("d1_logit", "limiar_inferior_log", "temperatura_texto", "limiar_funcao")
 BATCH = 64
 
-
+def exact_gpu_math() -> None:
+    """Desliga o TF32 da GPU (padrão do cuDNN nas convoluções da série RTX 30). Com ele
+    ligado, cerca de 1% das decisões mudava em relação à CPU (T6c.5, G-a)."""
+    torch.backends.cudnn.allow_tf32 = False
+    torch.backends.cuda.matmul.allow_tf32 = False
 class ReaderArtifactError(ValueError):
     """Artefato do leitor ausente, adulterado ou de outro formato."""
 
@@ -96,6 +101,8 @@ class ReaderModel:
                  device: str = "cpu"):
         if not (len(trunks) == len(heads) == 3):
             raise ReaderArtifactError("O leitor precisa de 3 troncos e 3 cabeças.")
+        if device != "cpu":
+            exact_gpu_math()
         self.trunks = [t.to(device).eval() for t in trunks]
         self.heads = [h.to(device).eval() for h in heads]
         self.thresholds = {k: float(thresholds[k]) for k in _THRESHOLD_KEYS}
