@@ -22,17 +22,18 @@ def _probs(code):
 
 
 class FakeModel:
-    log_low, function_threshold = math.log(0.2), 0.7258
+    log_low, function_threshold, serial_log_low = math.log(0.2), 0.7258, math.log(0.19)
 
-    def __init__(self, display="12345", serial="A123", code="03"):
+    def __init__(self, display="12345", serial="A123", code="03", serial_conf=-0.1):
         self.texts = {"display_digital": display, "display_ciclometrico": display,
                       "numero_serie": serial}
-        self.code, self.calls = code, []
+        self.code, self.calls, self.serial_conf = code, [], serial_conf
 
     def read(self, crops, field_class):
         self.calls.append((field_class, crops[0].size))
         f = _probs(self.code) if field_class == "display_digital" else None
-        return [ReaderOutput(self.texts[field_class], -0.1, 0.9, f,
+        conf = self.serial_conf if field_class == "numero_serie" else -0.1
+        return [ReaderOutput(self.texts[field_class], conf, 0.9, f,
                              False if f is not None else None)]
 
 
@@ -89,3 +90,24 @@ def test_caixa_fora_da_foto_vira_campo_ausente(tmp_path):
     out = ArtifactReader(model, "v").read(_photo(tmp_path), ROW, "digital",
                                           _detection("digital", serial=far))
     assert (out.status, out.reason) == (Status.NEEDS_REVIEW, Reason.METER_NUMBER_NOT_FOUND)
+
+
+
+def test_numero_ilegivel_vira_nao_localizado(tmp_path):
+    # R20: número diferente do esperado e com confiança abaixo do limiar
+    model = FakeModel(serial="ZZ99", serial_conf=math.log(0.05))
+    out = ArtifactReader(model, "v").read(_photo(tmp_path), ROW, "digital", _detection("digital"))
+    assert (out.status, out.reason, out.meter_number) == \
+        (Status.NEEDS_REVIEW, Reason.METER_NUMBER_NOT_FOUND, None)
+
+
+def test_numero_igual_ao_esperado_nao_passa_pelo_limiar(tmp_path):
+    model = FakeModel(serial_conf=math.log(0.05))
+    out = ArtifactReader(model, "v").read(_photo(tmp_path), ROW, "digital", _detection("digital"))
+    assert out.status is Status.APPROVED
+
+
+def test_numero_divergente_com_confianca_segue_divergente(tmp_path):
+    model = FakeModel(serial="ZZ99", serial_conf=math.log(0.5))
+    out = ArtifactReader(model, "v").read(_photo(tmp_path), ROW, "digital", _detection("digital"))
+    assert out.reason is Reason.METER_NUMBER_MISMATCH

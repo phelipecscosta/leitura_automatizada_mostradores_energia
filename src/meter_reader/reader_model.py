@@ -34,11 +34,12 @@ from meter_reader.reader_text import FUNCTION_CLASSES, TEXT_ALPHABET, encode, gr
 from meter_reader.validation import FieldReading
 
 # SHA-256 do único artefato do leitor aceito por esta versão do produto (T6c.4).
-PRODUCT_READER_SHA256 = "a816541128326ddda0354011f489a12a19222d1bab4aed7acc1cc5199883facb"
+PRODUCT_READER_SHA256 = "46f3ab72a36708cac987862a20ddab1563d03d7375e67d047f1d73ac70e4b1a2"
 READER_ARTIFACT_FORMAT = "leitor-1"
 READER_CANDIDATE = "L2-12"
 DIGITAL = "display_digital"
-_THRESHOLD_KEYS = ("d1_logit", "limiar_inferior_log", "temperatura_texto", "limiar_funcao")
+_THRESHOLD_KEYS = ("d1_logit", "limiar_inferior_log", "temperatura_texto", "limiar_funcao",
+                   "limiar_numero_log")
 BATCH = 64
 
 def exact_gpu_math() -> None:
@@ -107,6 +108,10 @@ class ReaderModel:
         self.heads = [h.to(device).eval() for h in heads]
         self.thresholds = {k: float(thresholds[k]) for k in _THRESHOLD_KEYS}
         self.device = device
+
+    @property
+    def serial_log_low(self) -> float:
+        return self.thresholds["limiar_numero_log"]
 
     @property
     def log_low(self) -> float:

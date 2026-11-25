@@ -34,7 +34,7 @@ def test_artefato_carrega_com_weights_only(tmp_path):
 
     state = [{"w": torch.zeros(2)} for _ in range(3)]
     limits = {"d1_logit": 3.0, "limiar_inferior_log": -1.5, "temperatura_texto": 1.4,
-              "limiar_funcao": 0.7, "fonte": "texto"}
+              "limiar_funcao": 0.7, "limiar_numero_log": -1.7, "fonte": "texto"}
     data = build_artifact(state, state, limits, {"torch": torch.__version__, "n": 1})
     path = tmp_path / "a.pt"
     save_artifact(path, data)

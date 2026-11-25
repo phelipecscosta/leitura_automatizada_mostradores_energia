@@ -42,7 +42,7 @@ class FakeDetector:
 class FakeReaderModel:
     """Lê "10" no display e devolve a função 03; o FakeDetector não tem número de série."""
 
-    log_low, function_threshold = -1.6, 0.7258
+    log_low, function_threshold, serial_log_low = -1.6, 0.7258, -1.7
 
     def read(self, crops, field_class):
         from meter_reader.reader_model import ReaderOutput

@@ -81,9 +81,10 @@ def build_artifact(trunks: list[dict], heads: list[dict], thresholds: dict,
 
     if not (len(trunks) == len(heads) == 3):
         raise ValueError("São esperados 3 troncos e 3 cabeças.")
-    needed = ("d1_logit", "limiar_inferior_log", "temperatura_texto", "limiar_funcao")
+    needed = ("d1_logit", "limiar_inferior_log", "temperatura_texto", "limiar_funcao",
+              "limiar_numero_log")
     if any(k not in thresholds for k in needed):
-        raise ValueError("Faltam limiares da T6c.3.")
+        raise ValueError("Faltam limiares da T6c.3 ou da R20.")
     return {"formato": ARTIFACT_FORMAT, "candidato": CANDIDATE,
             "classes_funcao": list(FUNCTION_CLASSES),
             "troncos": trunks, "cabecas": heads,
@@ -120,6 +121,7 @@ def main() -> None:
     from training.reader_heads_train import HEADS_DIR, train_heads
     from training.reader_labels import CROPS_SHA256
     from training.reader_pseudo import as_items
+    from training.reader_serial_threshold import OUT_NAME as SERIAL_THRESHOLD_NAME
     from training.reader_thresholds import OUT_NAME as THRESHOLDS_NAME
     from training.reader_train import META_NAME, SEEDS, WEIGHTS_NAME, run_dir, run_grid
 
@@ -129,6 +131,9 @@ def main() -> None:
         raise SystemExit("O artefato do leitor já foi gravado e não é sobrescrito.")
     thresholds_path = work_dir / THRESHOLDS_NAME
     thresholds = json.loads(thresholds_path.read_text(encoding="utf-8"))
+    serial_path = work_dir / SERIAL_THRESHOLD_NAME            # R20
+    thresholds["limiar_numero_log"] = json.loads(
+        serial_path.read_text(encoding="utf-8"))["log_limiar"]
 
     # 1. Pseudo-rótulos finais
     items, _ = load_items()
@@ -175,6 +180,7 @@ def main() -> None:
             "lista_recortes_sha256": CROPS_SHA256, "pseudo_rotulos": int(len(pseudo)),
             "pseudo_origem_sha256": pseudo_shas,
             "limiares_sha256": file_sha256(thresholds_path),
+            "limiar_numero_sha256": file_sha256(serial_path),
             "torch": torch.__version__}
     digest = save_artifact(artifact, build_artifact(trunks, heads, thresholds, info))
     print("Épocas:", epochs)

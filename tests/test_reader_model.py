@@ -15,7 +15,7 @@ from meter_reader.reader_model import (READER_ARTIFACT_FORMAT, ReaderArtifactErr
 from meter_reader.reader_text import FUNCTION_CLASSES, TEXT_ALPHABET
 
 LIMITS = {"d1_logit": 3.0, "limiar_inferior_log": math.log(0.2), "temperatura_texto": 1.4,
-          "limiar_funcao": 0.7258}
+          "limiar_funcao": 0.7258, "limiar_numero_log": math.log(0.19)}
 C = len(TEXT_ALPHABET) + 1
 
 

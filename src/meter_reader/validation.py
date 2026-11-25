@@ -98,8 +98,10 @@ def _very_low(display: FieldReading | None, log_low: float) -> bool:
 
 def decide(name: str, row: ExtractionRow, family: str | None, display: FieldReading | None,
            serial: FieldReading | None, function: FunctionDecision | None,
-           log_low: float) -> ControlRow:
-    """Linha da planilha de uma foto que chegou ao leitor."""
+           log_low: float, serial_log_low: float | None = None) -> ControlRow:
+    """Linha da planilha de uma foto que chegou ao leitor. Com `serial_log_low` (R20),
+    um número diferente do esperado e com confiança abaixo do limiar conta como não
+    localizado; um número igual ao esperado não passa pelo limiar."""
     if family == "digital" and display is not None and function is None:
         raise ValueError("Um display digital precisa da decisão da função.")
     if family != "digital" and function is not None:
@@ -107,6 +109,9 @@ def decide(name: str, row: ExtractionRow, family: str | None, display: FieldRead
 
     expected_meter = row.expected_meter_number
     serial_text = serial.text if serial is not None and serial.text else None
+    if (serial_text is not None and serial_text != expected_meter
+            and serial_log_low is not None and serial.log_conf < serial_log_low):
+        serial_text = None                     # R20: placa ilegível, não "divergente"
     serial_ok = serial_text == expected_meter
 
     if _very_low(display, log_low):           # item 11.1

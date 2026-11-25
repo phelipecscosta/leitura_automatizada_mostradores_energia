@@ -58,4 +58,5 @@ class ArtifactReader:
         crop = _crop(image, fields.serial, SERIAL)
         if crop is not None:
             serial = self.model.read([crop], SERIAL)[0].field()
-        return decide(path.name, row, family, display, serial, function, self.model.log_low)
+        return decide(path.name, row, family, display, serial, function, self.model.log_low,
+                      self.model.serial_log_low)
