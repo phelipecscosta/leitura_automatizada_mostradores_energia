@@ -174,8 +174,9 @@ def train_one(config: str, candidate: str, items: pd.DataFrame, lot: str, seed: 
     model.load_state_dict(best[2])
     out_dir.mkdir(parents=True, exist_ok=True)
     torch.save(best[2], out_dir / WEIGHTS_NAME)
-    np.savez(out_dir / PREDICTIONS_NAME,
-             **predict(model, evaluated, cache, list_sha, gray, device))
+    if len(evaluated):   # o modelo final (T6c.4) não tem lote avaliado
+        np.savez(out_dir / PREDICTIONS_NAME,
+                 **predict(model, evaluated, cache, list_sha, gray, device))
     meta = {"configuracao": config, "candidato": candidate, "lote_avaliado": lot,
             "semente": seed, "cinza": gray, "epocas_max": max_epochs,
             "epoca_escolhida": best[1], "ma_interna": round(best[0], 5), "curva_ma": curve,

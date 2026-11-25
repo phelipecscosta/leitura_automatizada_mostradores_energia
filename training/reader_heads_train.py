@@ -203,11 +203,12 @@ def train_heads(weights_path: Path, candidate: str, gray: bool, items: pd.DataFr
     heads.load_state_dict(final)
     out_dir.mkdir(parents=True, exist_ok=True)
     torch.save(final, out_dir / "pesos_cabecas.pt")
-    probs, logits, index = _outputs(model, heads, eval_loader("avaliacao"), device)
-    ev = parts["avaliacao"].iloc[index]
-    np.savez(out_dir / "predicoes_cabecas.npz", funcao=probs.astype(np.float32),
-             duas=logits.astype(np.float32),
-             chave=(ev["pseudonimo"] + "|" + ev["classe"] + "|" + ev["recorte"]).to_numpy(str))
+    if len(parts["avaliacao"]):   # as cabeças finais (T6c.4) não têm lote avaliado
+        probs, logits, index = _outputs(model, heads, eval_loader("avaliacao"), device)
+        ev = parts["avaliacao"].iloc[index]
+        np.savez(out_dir / "predicoes_cabecas.npz", funcao=probs.astype(np.float32),
+                 duas=logits.astype(np.float32),
+                 chave=(ev["pseudonimo"] + "|" + ev["classe"] + "|" + ev["recorte"]).to_numpy(str))
     meta = {"configuracao": CONFIG, "lote_avaliado": lot, "semente": seed,
             "epoca_funcao": best_f[1], "revocacao_media_interna": round(best_f[0], 4),
             "epoca_duas": best_t[1], "ap_interno": round(best_t[0], 4), "curva": curve,
