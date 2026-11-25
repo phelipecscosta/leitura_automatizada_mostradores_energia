@@ -13,6 +13,9 @@ TEXT_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 FUNCTION_ALPHABET = "0123456789"
 BLANK = 0
 MAX_READING_LENGTH = 8   # maior leitura digital observada (T6b.1)
+# Classes da cabeça da função (R11) e as que contam como consumo (R15, R18)
+FUNCTION_CLASSES = ("vazio", "03", "003", "103", "24", "55", "outro")
+CONSUMPTION_CLASSES = ("vazio", "03", "003")
 
 
 def encode(text: str, alphabet: str) -> list[int]:

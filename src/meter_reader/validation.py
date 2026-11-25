@@ -16,7 +16,7 @@ linha da planilha. Não lê disco nem carrega modelo. Regras:
   - 13.2: leitura livre diferente do CSV, "Leitura de consumo divergente do registro",
     com o valor lido. A comparação é numérica (Z-a). No ciclométrico, diferença de
     exatamente 1 conta como igual: tambor em transição (B10-b).
-  - 13.3 (digital): a decisão da função vem pronta (regra da T6c.2).
+  - 13.3 (digital): `function_decision`, pelo limiar da R17 e o motivo da R-b.
 - Sem falha: "Processada com sucesso", com o número e a leitura do CSV (na transição,
   vale o valor do CSV, como na T-a).
 O 13.4 (Parâmetros) fica para a ET8 (E08).
@@ -25,10 +25,12 @@ O 13.4 (Parâmetros) fica para a ET8 (E08).
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 from meter_reader.contracts import (FUNCTION_OK, ControlRow, ExtractionRow, Reason, Rejection,
-                                    Status, first_reason)
+                                    Status, first_reason, wrong_function)
+from meter_reader.reader_text import CONSUMPTION_CLASSES, FUNCTION_CLASSES
 
 CYCLOMETRIC_TOLERANCE = 1   # B10-b: tambor em transição
 REJECTION_EXTRACTION = Rejection(Status.REJECTED_LOW_QUALITY, Reason.EXTRACTION_FAILURE)
@@ -58,6 +60,27 @@ class FunctionDecision:
                 raise ValueError("Uma função aceita não tem motivo e só vale 03 ou NAN.")
         elif self.reason not in _FUNCTION_REASONS:
             raise ValueError("Motivo da função fora do vocabulário do validador 13.3.")
+
+def function_decision(probs: Mapping[str, float], threshold: float) -> FunctionDecision:
+    """13.3 num digital, pelas probabilidades médias do comitê por classe da cabeça
+    (R17 e R-b). Aceita quando P(consumo) = P(vazio) + P(03) + P(003) >= limiar; a
+    coluna Funcao fica "03" se, entre as classes de consumo, a mais provável é 03 ou
+    003, e NAN se é vazio. Retido: se a classe mais provável não é de consumo, "Função
+    incorreta", com "Função incorreta - XX" (NAN em "outro"); senão, "Confiança
+    baixa", com a coluna como na aceitação. Empate: a primeira na ordem das classes."""
+    if set(probs) != set(FUNCTION_CLASSES):
+        raise ValueError("As probabilidades precisam ter as classes da função.")
+    p_consumption = sum(probs[c] for c in CONSUMPTION_CLASSES)
+    best_consumption = max(CONSUMPTION_CLASSES,
+                           key=lambda c: (probs[c], -CONSUMPTION_CLASSES.index(c)))
+    consumption_column = None if best_consumption == "vazio" else FUNCTION_OK
+    if p_consumption >= threshold:
+        return FunctionDecision(True, consumption_column)
+    best = max(FUNCTION_CLASSES, key=lambda c: (probs[c], -FUNCTION_CLASSES.index(c)))
+    if best in CONSUMPTION_CLASSES:
+        return FunctionDecision(False, consumption_column, Reason.LOW_CONFIDENCE)
+    column = None if best == "outro" else wrong_function(best)
+    return FunctionDecision(False, column, Reason.WRONG_FUNCTION)
 
 
 def reading_matches(text: str, expected: int, family: str | None) -> bool:

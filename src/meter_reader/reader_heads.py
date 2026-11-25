@@ -11,8 +11,8 @@ from __future__ import annotations
 import torch
 from torch import nn
 
-FUNCTION_CLASSES = ("vazio", "03", "003", "103", "24", "55", "outro")
-CONSUMPTION_CLASSES = ("vazio", "03", "003")   # P(consumo) é a soma destas (R15, R18)
+from meter_reader.reader_text import CONSUMPTION_CLASSES, FUNCTION_CLASSES  # noqa: F401
+
 HEAD_HIDDEN = 128
 
 

@@ -100,3 +100,46 @@ def test_decisao_da_funcao_coerente():
         _decide(function=None)
     with pytest.raises(ValueError):
         decide("a.jpg", ROW, "ciclometrico", OK, SERIAL, F_OK, LOW)
+
+
+
+def _probs(**kw):
+    from meter_reader.reader_text import FUNCTION_CLASSES
+    names = {"vazio": "vazio", "f03": "03", "f003": "003", "f103": "103", "f24": "24",
+             "f55": "55", "outro": "outro"}
+    out = dict.fromkeys(FUNCTION_CLASSES, 0.0)
+    out.update({names[k]: v for k, v in kw.items()})
+    return out
+
+
+T = 0.7258
+
+
+def test_funcao_aceita_com_03_ou_vazio():
+    from meter_reader.validation import function_decision
+    assert function_decision(_probs(f03=0.5, f003=0.3, f24=0.2), T) == FunctionDecision(True, "03")
+    assert function_decision(_probs(vazio=0.6, f03=0.2, f24=0.2), T) == FunctionDecision(True, None)
+    # na igualdade com o limiar, aceita (a curva da R16 usou >=)
+    assert function_decision(_probs(f03=T, f24=1 - T), T).accepted
+
+
+def test_funcao_retida_por_funcao_incorreta():
+    from meter_reader.validation import function_decision
+    d = function_decision(_probs(f03=0.3, f24=0.7), T)
+    assert d == FunctionDecision(False, wrong_function("24"), Reason.WRONG_FUNCTION)
+    d = function_decision(_probs(f03=0.3, outro=0.7), T)
+    assert d == FunctionDecision(False, None, Reason.WRONG_FUNCTION)
+
+
+def test_funcao_retida_por_confianca_baixa():
+    from meter_reader.validation import function_decision
+    d = function_decision(_probs(f03=0.5, f103=0.3, f24=0.2), T)
+    assert d == FunctionDecision(False, "03", Reason.LOW_CONFIDENCE)
+    d = function_decision(_probs(vazio=0.4, f103=0.35, f24=0.25), T)
+    assert d == FunctionDecision(False, None, Reason.LOW_CONFIDENCE)
+
+
+def test_funcao_exige_todas_as_classes():
+    from meter_reader.validation import function_decision
+    with pytest.raises(ValueError):
+        function_decision({"03": 1.0}, T)
