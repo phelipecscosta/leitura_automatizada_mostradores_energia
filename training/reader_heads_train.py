@@ -26,15 +26,13 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
 from sklearn.metrics import average_precision_score, recall_score
 from torch.utils.data import DataLoader, RandomSampler
+# As cabeças moram no produto (T6c.5); os nomes seguem importáveis daqui
+from meter_reader.reader_heads import FUNCTION_CLASSES, Heads, trunk_features  # noqa: F401
 
 CONFIG = "L2-12+auto1"
 HEADS_DIR = Path("experimentos") / "leitor" / "cabecas"
-FUNCTION_CLASSES = ("vazio", "03", "003", "103", "24", "55", "outro")
-HEAD_HIDDEN = 128
 HEAD_EPOCHS = 30
 HEAD_LR = 1e-3
 HEAD_BATCH = 128
@@ -59,32 +57,6 @@ def class_weights(classes: np.ndarray, n_classes: int = len(FUNCTION_CLASSES)) -
     weights = np.zeros(n_classes)
     weights[present] = counts[present].sum() / (present.sum() * counts[present])
     return torch.tensor(weights, dtype=torch.float32)
-
-
-def trunk_features(model, x: torch.Tensor) -> torch.Tensor:
-    """Atributos do tronco como no `Reader.forward`: (B, T, C * H)."""
-    f = model.backbone(x)
-    b, c, h, t = f.shape
-    return f.permute(0, 3, 1, 2).reshape(b, t, c * h)
-
-
-class Heads(nn.Module):
-    """Cabeça da função (classificação) e de duas leituras sobre os atributos do tronco."""
-
-    def __init__(self, feat_dim: int, hidden: int = HEAD_HIDDEN,
-                 n_classes: int = len(FUNCTION_CLASSES)):
-        super().__init__()
-        self.f_project = nn.Sequential(nn.Linear(feat_dim, hidden), nn.ReLU(inplace=True))
-        self.f_rnn = nn.LSTM(hidden, hidden, bidirectional=True, batch_first=True)
-        self.f_out = nn.Linear(4 * hidden, n_classes)   # média e máximo no tempo
-        self.two = nn.Sequential(nn.Linear(feat_dim, hidden), nn.ReLU(inplace=True),
-                                 nn.Linear(hidden, 1))
-
-    def forward(self, f: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        g, _ = self.f_rnn(self.f_project(f))
-        func = self.f_out(torch.cat([g.mean(1), g.amax(1)], dim=-1))
-        return func, self.two(f.mean(1)).squeeze(1)
-
 
 def macro_recall(y: np.ndarray, pred: np.ndarray) -> float:
     """Revocação média pelas classes presentes em `y`."""
