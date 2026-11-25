@@ -89,7 +89,8 @@ def build_artifact(trunks: list[dict], heads: list[dict], thresholds: dict,
             "troncos": trunks, "cabecas": heads,
             "limiares": {k: float(v) for k, v in thresholds.items()
                          if isinstance(v, (int, float))},
-            "info": info}
+            # Procedência só com tipos simples, para a carga com weights_only=True
+            "info": json.loads(json.dumps(info, default=str))}
 
 
 def save_artifact(path: Path, data: dict) -> str:

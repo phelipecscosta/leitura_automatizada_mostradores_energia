@@ -33,7 +33,7 @@ from meter_reader.reader_text import FUNCTION_CLASSES, TEXT_ALPHABET, encode, gr
 from meter_reader.validation import FieldReading
 
 # SHA-256 do único artefato do leitor aceito por esta versão do produto (T6c.4).
-PRODUCT_READER_SHA256 = "3676bb91aba3c59fbc0e866da2ea7e07512d0ea50a2f778c81335d98ad8b3771"
+PRODUCT_READER_SHA256 = "a816541128326ddda0354011f489a12a19222d1bab4aed7acc1cc5199883facb"
 READER_ARTIFACT_FORMAT = "leitor-1"
 READER_CANDIDATE = "L2-12"
 DIGITAL = "display_digital"

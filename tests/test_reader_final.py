@@ -24,3 +24,20 @@ def test_interseccao_recusa_pseudo_rotulo_do_lote_avaliado():
     folds = {"A": _fold([("p1", "d", "A", "1")]), "B": _fold([]), "C": _fold([])}
     with pytest.raises(ValueError):
         intersect_folds(folds)
+
+
+
+def test_artefato_carrega_com_weights_only(tmp_path):
+    import torch
+
+    from training.reader_final import build_artifact, save_artifact
+
+    state = [{"w": torch.zeros(2)} for _ in range(3)]
+    limits = {"d1_logit": 3.0, "limiar_inferior_log": -1.5, "temperatura_texto": 1.4,
+              "limiar_funcao": 0.7, "fonte": "texto"}
+    data = build_artifact(state, state, limits, {"torch": torch.__version__, "n": 1})
+    path = tmp_path / "a.pt"
+    save_artifact(path, data)
+    back = torch.load(path, map_location="cpu", weights_only=True)
+    assert back["info"] == {"torch": str(torch.__version__), "n": 1}
+    assert "fonte" not in back["limiares"]
