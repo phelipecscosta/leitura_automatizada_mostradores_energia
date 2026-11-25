@@ -71,11 +71,12 @@ def trunk_features(model, x: torch.Tensor) -> torch.Tensor:
 class Heads(nn.Module):
     """Cabeça da função (classificação) e de duas leituras sobre os atributos do tronco."""
 
-    def __init__(self, feat_dim: int, hidden: int = HEAD_HIDDEN):
+    def __init__(self, feat_dim: int, hidden: int = HEAD_HIDDEN,
+                 n_classes: int = len(FUNCTION_CLASSES)):
         super().__init__()
         self.f_project = nn.Sequential(nn.Linear(feat_dim, hidden), nn.ReLU(inplace=True))
         self.f_rnn = nn.LSTM(hidden, hidden, bidirectional=True, batch_first=True)
-        self.f_out = nn.Linear(4 * hidden, len(FUNCTION_CLASSES))   # média e máximo no tempo
+        self.f_out = nn.Linear(4 * hidden, n_classes)   # média e máximo no tempo
         self.two = nn.Sequential(nn.Linear(feat_dim, hidden), nn.ReLU(inplace=True),
                                  nn.Linear(hidden, 1))
 
@@ -90,8 +91,8 @@ def macro_recall(y: np.ndarray, pred: np.ndarray) -> float:
     return float(recall_score(y, pred, labels=np.unique(y), average="macro", zero_division=0))
 
 
-def _targets(items: pd.DataFrame) -> dict[str, np.ndarray]:
-    return {"classe_funcao": items["funcao"].map(function_class).to_numpy(),
+def _targets(items: pd.DataFrame, class_fn=function_class) -> dict[str, np.ndarray]:
+    return {"classe_funcao": items["funcao"].map(class_fn).to_numpy(),
             "usa_funcao": items["usa_funcao"].to_numpy(bool),
             "duas": items["duas_leituras"].astype(bool).to_numpy(),
             "usa_duas": items["usa_duas"].to_numpy(bool)}
@@ -114,8 +115,10 @@ def _outputs(model, heads, loader, device) -> tuple[np.ndarray, np.ndarray, np.n
 
 def train_heads(weights_path: Path, candidate: str, gray: bool, items: pd.DataFrame, lot: str,
                 seed: int, cache: Path, list_sha: str, out_dir: Path,
-                device: str = "cuda") -> dict:
-    """Um treino das duas cabeças sobre o tronco congelado de um modelo final."""
+                device: str = "cuda", n_classes: int = len(FUNCTION_CLASSES),
+                class_fn=function_class) -> dict:
+    """Um treino das duas cabeças sobre o tronco congelado de um modelo final. `n_classes`
+    e `class_fn` permitem uma classe a mais na função (R18), sem mudar o padrão."""
     from meter_reader.reader import Reader
     from meter_reader.reader_input import READER_HEIGHT, READER_WIDTH
     from training.reader_dataset import fold_masks
@@ -131,16 +134,16 @@ def train_heads(weights_path: Path, candidate: str, gray: bool, items: pd.DataFr
     with torch.no_grad():
         feat_dim = trunk_features(model, torch.zeros(1, 3, READER_HEIGHT, READER_WIDTH,
                                                      device=device)).shape[-1]
-    heads = Heads(feat_dim).to(device)
+    heads = Heads(feat_dim, n_classes=n_classes).to(device)
 
     used = items[items["usa_funcao"] | items["usa_duas"]]
     masks = fold_masks(used, lot)
     parts = {k: used[masks[k]].reset_index(drop=True) for k in ("treino", "interno", "avaliacao")}
     parts["interno"] = parts["interno"][parts["interno"]["origem"] != "pseudo"].reset_index(drop=True)
-    tg = {k: _targets(v) for k, v in parts.items()}
+    tg = {k: _targets(v, class_fn) for k, v in parts.items()}
 
     t = tg["treino"]
-    f_weights = class_weights(t["classe_funcao"][t["usa_funcao"]]).to(device)
+    f_weights = class_weights(t["classe_funcao"][t["usa_funcao"]], n_classes).to(device)
     pos = t["duas"][t["usa_duas"]]
     pos_weight = torch.tensor((~pos).sum() / max(1, pos.sum()), device=device)
 
