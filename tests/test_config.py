@@ -122,3 +122,14 @@ def test_triage_artifact_must_be_a_file(clean_output_env: Path, monkeypatch) -> 
         get_triage_artifact()
     artifact.write_bytes(b"x")
     assert get_triage_artifact() == artifact.resolve()
+
+
+def test_reader_artifact_must_be_a_file(clean_output_env: Path, monkeypatch) -> None:
+    from meter_reader.config import READER_ARTIFACT_VAR, get_reader_artifact
+
+    artifact = clean_output_env / "leitor.pt"
+    monkeypatch.setenv(READER_ARTIFACT_VAR, str(artifact))
+    with pytest.raises(ConfigError, match="inexistente"):
+        get_reader_artifact()
+    artifact.write_bytes(b"x")
+    assert get_reader_artifact() == artifact.resolve()
