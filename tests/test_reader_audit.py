@@ -34,7 +34,7 @@ def test_blocos_com_tres_armadilhas_e_reserva():
         assert sum(i["tipo"] == "real" for i in b) <= BLOCK
     assert sorted(i["pseudonimo"] for i in items if i["tipo"] == "real") == \
         sorted(r["pseudonimo"] for r in real)
-    assert len(reserve) == 3 * TRAPS * 2
+    assert len(reserve) == len(pool) - 3 * TRAPS          # toda a sobra fica de reserva
     used = {i["pseudonimo"] for i in items if i["tipo"] == "armadilha"}
     assert not used & {r["pseudonimo"] for r in reserve}
     assert build_blocks(real, pool)[0] == items          # sementes fixas: mesmo sorteio

@@ -25,7 +25,6 @@ FOLDER = "teste_0307"
 ITEMS_NAME, RESERVE_NAME, MARKS_NAME = ("auditoria_itens.csv", "auditoria_reserva.csv",
                                         "auditoria_marcas.csv")
 BLOCK, TRAPS, MAX_MISSED = 50, 3, 2          # 1.16 (d)
-RESERVE_BLOCKS = 2                          # armadilhas de reserva: 2 refações por bloco
 CONFUSABLE = {"0": "8", "8": "0", "1": "7", "7": "1", "5": "6", "6": "5", "3": "8",
               "B": "8", "S": "5", "O": "0", "D": "0", "I": "1", "Z": "2"}
 DIGITS = "0123456789"
@@ -64,7 +63,8 @@ def make_trap(row: dict, rng: random.Random) -> dict:
 
 def build_blocks(real: list[dict], pool: list[dict]) -> tuple[list[dict], list[dict]]:
     """Ordem das aprovadas, blocos de 50 com 3 armadilhas em posições sorteadas, e a
-    reserva de armadilhas para os blocos refeitos."""
+        reserva de armadilhas para os blocos refeitos (todas as fotos restantes; exige pelo
+    menos uma refação possível de cada bloco)."""
     order = seeded("a1b-ordem")
     trap_rng = seeded("a1b-armadilhas")
     real = real[:]
@@ -72,10 +72,10 @@ def build_blocks(real: list[dict], pool: list[dict]) -> tuple[list[dict], list[d
     pool = pool[:]
     trap_rng.shuffle(pool)
     blocks = [real[i:i + BLOCK] for i in range(0, len(real), BLOCK)]
-    need = len(blocks) * TRAPS * (1 + RESERVE_BLOCKS)
+    need = len(blocks) * TRAPS * 2
     if len(pool) < need:
         raise SystemExit(f"Fotos para armadilhas insuficientes: {len(pool)} de {need}.")
-    traps = [make_trap(r, trap_rng) for r in pool[:need]]
+    traps = [make_trap(r, trap_rng) for r in pool]
     items = []
     for b, block in enumerate(blocks, 1):
         chosen = traps[(b - 1) * TRAPS:b * TRAPS]
