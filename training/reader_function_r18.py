@@ -17,7 +17,8 @@ import numpy as np
 import pandas as pd
 
 R12I_HEADS = "L2-12+auto1-r12i"
-ILLEGIBLE = "ILEGIVEL"            # código interno da oitava classe
+ILLEGIBLE = "9999999"   # código interno da oitava classe: 7 dígitos, fora do alcance dos
+                        # julgamentos (de 1 a 6 dígitos) e dentro do alfabeto da CTC
 N_CLASSES_I = 8
 MAX_RISK = 0.01                   # R17 (a) e (b)
 MIN_KEPT = 0.50                   # R18 (c) (iii)

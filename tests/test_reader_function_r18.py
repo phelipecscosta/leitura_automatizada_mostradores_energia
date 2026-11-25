@@ -25,3 +25,8 @@ def test_adocao_pela_r18():
     assert not adopt(r12, cand(0.45, 0.30))          # abaixo do piso
     assert not adopt(r12, cand(0.70, 0.60))          # não corta ilegíveis
     assert not adopt(r12, {"escolhido": None, "ilegiveis_aprovados": 0.0})
+
+def test_codigo_interno_cabe_no_alfabeto_e_nao_colide():
+    from meter_reader.reader_text import FUNCTION_ALPHABET, encode
+    assert encode(ILLEGIBLE, FUNCTION_ALPHABET)
+    assert len(ILLEGIBLE) > 6
